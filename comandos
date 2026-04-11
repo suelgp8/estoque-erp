@@ -1,0 +1,52 @@
+COMANDOS DO DIA A DIA
+
+1. Subir a aplicacao para testar durante o desenvolvimento
+npm run dev
+
+2. Validar se o projeto ainda compila depois das alteracoes
+npm run build
+
+3. Recriar ou resetar o usuario de teste, se necessario
+npm run dev:user
+
+4. Encerrar tudo com seguranca
+No terminal onde estiver rodando o npm run dev, pressione:
+Ctrl + C
+
+Depois pare o banco com:
+npm run db:down
+
+ROTINA RAPIDA
+
+Para trabalhar:
+npm run dev
+
+Para validar:
+npm run build
+
+Para encerrar:
+Ctrl + C
+npm run db:down
+
+LINK REMOTO MAIS ESTAVEL
+
+1. Fazer login uma vez no Dev Tunnels
+powershell -ExecutionPolicy Bypass -File .\scripts\devtunnel.ps1 user login --use-browser-auth
+
+2. Criar um tunel persistente uma vez so
+powershell -ExecutionPolicy Bypass -File .\scripts\devtunnel.ps1 create estoque-erp-frontend --expiration 30d
+
+3. Registrar a porta publica do frontend nesse tunel
+powershell -ExecutionPolicy Bypass -File .\scripts\devtunnel.ps1 port create estoque-erp-frontend --port-number 5173 --protocol http
+
+4. Permitir acesso anonimo por ate 30 dias nessa porta
+powershell -ExecutionPolicy Bypass -File .\scripts\devtunnel.ps1 access create estoque-erp-frontend --port-number 5173 --anonymous --expiration 30d
+
+5. Sempre que for usar, subir a aplicacao
+npm run dev
+
+6. Sempre que for usar, hospedar o mesmo tunel
+powershell -ExecutionPolicy Bypass -File .\scripts\devtunnel.ps1 host estoque-erp-frontend.brs
+
+7. Ver os dados do tunel salvo
+powershell -ExecutionPolicy Bypass -File .\scripts\devtunnel.ps1 show estoque-erp-frontend.brs

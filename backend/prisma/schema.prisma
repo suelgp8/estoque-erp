@@ -1,0 +1,245 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  GESTOR
+  TECNICO
+}
+
+enum StockMovementType {
+  ENTRY
+  EXIT
+  TRANSFER
+}
+
+enum StockMovementStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+  CANCELED
+  REVERSED
+}
+
+model Company {
+  id           String       @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  name         String
+  logoDataUrl  String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  users        User[]
+  bases        Base[]
+  systemConfig SystemConfig?
+  categories   Category[]
+  products     Product[]
+  stocks       Stock[]
+  movements    StockMovement[]
+  logs         Log[]
+}
+
+model User {
+  id               String          @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  name             String
+  email            String          @unique
+  profilePhotoDataUrl String?
+  passwordHash     String
+  role             Role            @default(TECNICO)
+  isFirstLogin     Boolean         @default(true)
+  companyId        String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  company          Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdMovements StockMovement[] @relation("StockMovementCreatedBy")
+  approvedMovements StockMovement[] @relation("StockMovementApprovedBy")
+  logs             Log[]
+  passwordResetTokens PasswordResetToken[]
+  baseAccesses      UserBaseAccess[]
+}
+
+model Base {
+  id                    String          @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  name                  String
+  companyId             String
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  company               Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  stocks                Stock[]
+  sourceMovements       StockMovement[] @relation("StockMovementSourceBase")
+  destinationMovements  StockMovement[] @relation("StockMovementDestinationBase")
+  userAccesses          UserBaseAccess[]
+  categoryAccesses      CategoryBaseAccess[]
+  productAccesses       ProductBaseAccess[]
+
+  @@unique([companyId, name])
+}
+
+model SystemConfig {
+  id        String   @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  companyId String   @unique
+  timezone  String   @default("America/Sao_Paulo")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+model Category {
+  id           String               @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  name         String
+  description  String?
+  companyId    String
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  products     Product[]
+  baseAccesses CategoryBaseAccess[]
+
+  @@unique([companyId, name])
+}
+
+model Product {
+  id            String              @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  name          String
+  sku           String              @default(dbgenerated("lpad(nextval('app_sku_seq'::regclass)::text, 8, '0')"))
+  description   String?
+  minimumStock  Int                 @default(0)
+  companyId     String
+  categoryId    String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  company       Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category      Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  stocks        Stock[]
+  movementItems StockMovementItem[]
+  baseAccesses  ProductBaseAccess[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, name])
+}
+
+model CategoryBaseAccess {
+  id         String   @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  categoryId String
+  baseId     String
+  createdAt  DateTime @default(now())
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  base       Base     @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, baseId])
+  @@index([baseId])
+}
+
+model ProductBaseAccess {
+  id        String   @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  productId String
+  baseId    String
+  createdAt DateTime @default(now())
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  base      Base     @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, baseId])
+  @@index([baseId])
+}
+
+model Stock {
+  id        String   @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  companyId String
+  productId String
+  baseId    String
+  quantity  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  base      Base     @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, baseId])
+  @@index([companyId, baseId])
+}
+
+model StockMovement {
+  id                String              @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  type              StockMovementType
+  status            StockMovementStatus @default(PENDING)
+  reason            String?
+  rejectionReason   String?
+  cancellationReason String?
+  reversalReason    String?
+  companyId         String
+  createdById       String
+  approvedById      String?
+  sourceBaseId      String?
+  destinationBaseId String?
+  originalMovementId String?            @unique
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  approvedAt        DateTime?
+  completedAt       DateTime?
+  company           Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy         User                @relation("StockMovementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedBy        User?               @relation("StockMovementApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  sourceBase        Base?               @relation("StockMovementSourceBase", fields: [sourceBaseId], references: [id], onDelete: SetNull)
+  destinationBase   Base?               @relation("StockMovementDestinationBase", fields: [destinationBaseId], references: [id], onDelete: SetNull)
+  originalMovement  StockMovement?      @relation("StockMovementReversal", fields: [originalMovementId], references: [id], onDelete: SetNull)
+  reversalMovement  StockMovement?      @relation("StockMovementReversal")
+  items             StockMovementItem[]
+
+  @@index([companyId, status, type])
+  @@index([createdById])
+}
+
+model StockMovementItem {
+  id         String        @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  movementId String
+  productId  String
+  quantity   Int
+  createdAt  DateTime      @default(now())
+  movement   StockMovement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  product    Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([movementId, productId])
+}
+
+model Log {
+  id         String   @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  companyId  String
+  userId     String?
+  entityType String
+  entityId   String?
+  action     String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model UserBaseAccess {
+  id        String   @id @default(dbgenerated("nextval('app_numeric_id_seq'::regclass)::text"))
+  userId    String
+  baseId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  base      Base     @relation(fields: [baseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, baseId])
+  @@index([baseId])
+}

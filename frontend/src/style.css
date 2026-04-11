@@ -1,0 +1,212 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family: "Manrope", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  --erp-bg: #f6f7f9;
+  --erp-bg-soft: #fbfcfd;
+  --erp-surface: rgba(255, 255, 255, 0.92);
+  --erp-border: rgba(148, 163, 184, 0.2);
+  --erp-border-strong: rgba(148, 163, 184, 0.32);
+  --erp-text: #0f172a;
+  --erp-text-soft: #475569;
+  --erp-accent: #0f766e;
+  --erp-accent-strong: #0f172a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: var(--erp-text);
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 28%),
+    radial-gradient(circle at top right, rgba(15, 23, 42, 0.05), transparent 24%),
+    linear-gradient(180deg, var(--erp-bg-soft) 0%, var(--erp-bg) 100%);
+  background-attachment: fixed;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.font-heading {
+  font-family: "Space Grotesk", "Manrope", "Segoe UI", sans-serif;
+}
+
+@layer components {
+  .erp-surface {
+    @apply rounded-3xl border bg-white shadow-[0_16px_40px_-28px_rgba(15,23,42,0.24)] backdrop-blur;
+    border-color: var(--erp-border);
+    background-color: var(--erp-surface);
+  }
+
+  .erp-kpi {
+    @apply relative overflow-hidden rounded-[28px] border bg-white p-5 shadow-[0_14px_34px_-28px_rgba(15,23,42,0.22)];
+    border-color: var(--erp-border);
+  }
+
+  .erp-field {
+    @apply h-11 w-full rounded-2xl border bg-white px-3 text-sm text-slate-800 outline-none transition duration-200 placeholder:text-slate-400 focus:ring-4;
+    border-color: var(--erp-border-strong);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  }
+
+  .erp-field:focus {
+    border-color: rgba(15, 23, 42, 0.34);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.7),
+      0 0 0 4px rgba(15, 23, 42, 0.08);
+  }
+
+  .erp-select {
+    @apply erp-field appearance-none bg-[linear-gradient(45deg,transparent_50%,#334155_50%),linear-gradient(135deg,#334155_50%,transparent_50%),linear-gradient(to_right,#fff,#fff)] bg-[position:calc(100%-20px)_calc(1em+1px),calc(100%-15px)_calc(1em+1px),100%_0] bg-[size:5px_5px,5px_5px,2.75em_100%] bg-no-repeat pr-11;
+  }
+
+  .erp-label {
+    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500;
+  }
+
+  .erp-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-transparent px-4 py-2.5 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .erp-button-primary {
+    @apply erp-button bg-slate-900 text-white hover:bg-slate-800;
+  }
+
+  .erp-button-muted {
+    @apply erp-button bg-white text-slate-700 hover:bg-slate-50;
+    border-color: var(--erp-border-strong);
+  }
+
+  .erp-button-danger {
+    @apply erp-button bg-rose-600 text-white hover:bg-rose-500;
+  }
+
+  .erp-table-wrap {
+    @apply overflow-x-auto rounded-[24px] border bg-white;
+    border-color: var(--erp-border);
+  }
+
+  .erp-table {
+    @apply min-w-full divide-y divide-slate-200 text-sm;
+  }
+
+  .erp-table thead th {
+    @apply bg-slate-50/80 px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500;
+  }
+
+  .erp-table tbody td {
+    @apply px-4 py-3 align-top text-slate-700 whitespace-normal break-words;
+  }
+
+  .erp-table tbody tr {
+    @apply border-b border-slate-100 transition-colors hover:bg-slate-50/70;
+  }
+
+  .erp-table tbody tr:last-child {
+    @apply border-b-0;
+  }
+}
+
+@media (max-width: 1024px) {
+  .erp-table-wrap {
+    overflow: visible;
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .erp-table {
+    display: block;
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .erp-table thead {
+    display: none;
+  }
+
+  .erp-table tbody {
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  .erp-table tbody tr {
+    display: block;
+    overflow: hidden;
+    border: 1px solid var(--erp-border);
+    border-radius: 1.25rem;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 12px 30px -26px rgba(15, 23, 42, 0.35);
+  }
+
+  .erp-table tbody tr:last-child {
+    border-bottom-width: 1px;
+  }
+
+  .erp-table tbody td {
+    display: grid;
+    grid-template-columns: minmax(110px, 36%) minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  }
+
+  .erp-table tbody td::before {
+    content: attr(data-label);
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgb(100 116 139);
+  }
+
+  .erp-table tbody td:last-child {
+    border-bottom: 0;
+  }
+
+  .erp-table tbody td[colspan] {
+    display: block;
+    padding: 1.4rem 1rem;
+    border-bottom: 0;
+    text-align: center;
+  }
+
+  .erp-table tbody td[colspan]::before {
+    content: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .erp-table tbody td {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.reveal-up {
+  animation: reveal-up 0.4s ease both;
+}
