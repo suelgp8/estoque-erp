@@ -17,6 +17,11 @@ Aplicacao de controle de estoque em monorepo, com frontend Vue, backend Node/Exp
 - `scripts/`: scripts locais de apoio
 - `docker-compose.yml`: Postgres para desenvolvimento
 
+## Guias do repositorio
+
+- [Fluxo de contribuicao](./CONTRIBUTING.md)
+- [Guia de deploy na VPS](./docs/deploy-vps.md)
+
 ## Requisitos
 
 - Node.js 20 ou superior
