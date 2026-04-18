@@ -9,6 +9,7 @@ const healthRepository = new HealthRepository();
 const healthService = new HealthService(healthRepository);
 const healthController = new HealthController(healthService);
 
+healthRoutes.get("/", healthController.getHealth);
 healthRoutes.get("/health", healthController.getHealth);
 
 export { healthRoutes };

@@ -48,7 +48,7 @@ const productStocks = pgTable(
     createdAt: timestamp("createdAt", { mode: "date", precision: 3 }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { mode: "date", precision: 3 }).notNull().defaultNow(),
   },
-  (table) => ({
+  (table: any) => ({
     productIdIdx: index("productStocks_productId_idx").on(table.productId),
     baseIdIdx: index("productStocks_baseId_idx").on(table.baseId),
     productBaseUnique: uniqueIndex("productStocks_productId_baseId_unique").on(table.productId, table.baseId),
@@ -83,7 +83,7 @@ const movements = pgTable(
     createdAt: timestamp("createdAt", { mode: "date", precision: 3 }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { mode: "date", precision: 3 }).notNull().defaultNow(),
   },
-  (table) => ({
+  (table: any) => ({
     productIdIdx: index("movements_productId_idx").on(table.productId),
     fromBaseIdIdx: index("movements_fromBaseId_idx").on(table.fromBaseId),
     toBaseIdIdx: index("movements_toBaseId_idx").on(table.toBaseId),
@@ -439,7 +439,7 @@ export class StockServiceTransaction {
 export class StockService {
   // Any thrown error inside this callback makes Drizzle rollback the whole transaction.
   async withTransaction<T>(operation: (tx: StockServiceTransaction) => Promise<T>): Promise<T> {
-    return db.transaction(async (tx) => {
+    return db.transaction(async (tx: Tx) => {
       await tx.execute(sql`select set_config('app.stock_service_write', 'on', true)`);
       return operation(new StockServiceTransaction(tx));
     });

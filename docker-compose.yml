@@ -25,10 +25,20 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/estoque_erp?schema=public
-      JWT_SECRET: change_me
+      NODE_ENV: ${BACKEND_NODE_ENV:-production}
+      HOST: ${BACKEND_HOST:-0.0.0.0}
+      PORT: ${BACKEND_PORT:-3000}
+      DATABASE_URL: ${BACKEND_DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/estoque_erp?schema=public}
+      JWT_SECRET: ${JWT_SECRET:-change_me}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080,https://sueldev.qzz.io}
+      PASSWORD_RESET_TOKEN_TTL_MINUTES: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:-60}
+      PASSWORD_RECOVERY_DEBUG: ${PASSWORD_RECOVERY_DEBUG:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
     command: sh -c "npm run prisma:migrate:deploy && npm run start"
     ports:
@@ -38,6 +48,10 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-localhost,127.0.0.1,sueldev.qzz.io}
+        VITE_BACKEND_TARGET: ${VITE_BACKEND_TARGET:-http://127.0.0.1:3000}
     container_name: estoque_frontend
     depends_on:
       - backend

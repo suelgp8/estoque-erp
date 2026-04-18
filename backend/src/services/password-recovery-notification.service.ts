@@ -10,8 +10,9 @@ type PasswordResetNotificationInput = {
 export class PasswordRecoveryNotificationService {
   async sendPasswordResetNotification(input: PasswordResetNotificationInput): Promise<void> {
     const resetLink = `${env.APP_BASE_URL}/reset-password?token=${input.token}`;
+    const hasSmtpConfiguration = Boolean(env.SMTP_HOST && env.SMTP_PORT && env.SMTP_USER && env.SMTP_PASS && env.SMTP_FROM);
 
-    if (env.NODE_ENV === "development") {
+    if (env.NODE_ENV === "development" || (!hasSmtpConfiguration && env.PASSWORD_RECOVERY_DEBUG)) {
       console.log("[PASSWORD_RECOVERY]", {
         email: input.email,
         token: input.token,
@@ -20,8 +21,6 @@ export class PasswordRecoveryNotificationService {
 
       return;
     }
-
-    const hasSmtpConfiguration = Boolean(env.SMTP_HOST && env.SMTP_PORT && env.SMTP_USER && env.SMTP_PASS && env.SMTP_FROM);
 
     const transporter = hasSmtpConfiguration
       ? nodemailer.createTransport({

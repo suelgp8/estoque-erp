@@ -30,6 +30,15 @@ const router = createRouter({
       }
     },
     {
+      path: "/reset-password",
+      name: "reset-password",
+      component: LoginPage,
+      meta: {
+        title: "Redefinir senha",
+        guestOnly: true
+      }
+    },
+    {
       path: "/app",
       component: AppShell,
       meta: {

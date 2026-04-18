@@ -6,8 +6,8 @@ import { app } from "./app";
 async function startServer() {
   await bootstrapAdminUser();
 
-  app.listen(env.PORT, () => {
-    console.log(`Backend running on port ${env.PORT}`);
+  app.listen(env.PORT, env.HOST, () => {
+    console.log(`Backend running on http://${env.HOST}:${env.PORT}`);
   });
 }
 

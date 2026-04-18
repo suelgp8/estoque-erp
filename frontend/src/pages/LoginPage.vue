@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useNotifier } from "../composables/useNotifier";
 import { ApiError } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 
+type AuthTab = "login" | "forgot" | "reset";
+
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 const notifier = useNotifier();
 
-const activeTab = ref<"login" | "forgot" | "reset">("login");
+const activeTab = ref<AuthTab>("login");
 
 const loginEmail = ref("admin@estoque.local");
 const loginPassword = ref("admin123");
@@ -21,6 +24,58 @@ const forgotLoading = ref(false);
 const resetToken = ref("");
 const resetPassword = ref("");
 const resetLoading = ref(false);
+
+function parseTab(value: unknown): AuthTab {
+  if (value === "forgot" || value === "reset") {
+    return value;
+  }
+
+  return "login";
+}
+
+function syncAuthFlowFromRoute() {
+  if (route.name === "reset-password") {
+    activeTab.value = "reset";
+  } else {
+    activeTab.value = parseTab(route.query.tab);
+  }
+
+  const tokenFromQuery = typeof route.query.token === "string" ? route.query.token.trim() : "";
+
+  if (tokenFromQuery) {
+    resetToken.value = tokenFromQuery;
+    activeTab.value = "reset";
+  }
+}
+
+async function navigateToTab(tab: AuthTab) {
+  activeTab.value = tab;
+
+  if (tab === "login") {
+    await router.replace({ name: "login" });
+    return;
+  }
+
+  if (tab === "forgot") {
+    await router.replace({
+      name: "login",
+      query: {
+        tab: "forgot"
+      }
+    });
+
+    return;
+  }
+
+  await router.replace({
+    name: "reset-password",
+    query: resetToken.value.trim()
+      ? {
+          token: resetToken.value.trim()
+        }
+      : undefined
+  });
+}
 
 function resolveErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -78,13 +133,23 @@ async function handleResetPassword() {
     notifier.success("Senha atualizada", response.message);
     resetToken.value = "";
     resetPassword.value = "";
-    activeTab.value = "login";
+    await router.push({ name: "login" });
   } catch (error) {
     notifier.error("Falha ao redefinir", resolveErrorMessage(error));
   } finally {
     resetLoading.value = false;
   }
 }
+
+watch(
+  () => [route.name, route.query.tab, route.query.token],
+  () => {
+    syncAuthFlowFromRoute();
+  },
+  {
+    immediate: true
+  }
+);
 
 onMounted(async () => {
   if (!auth.state.initialized) {
@@ -114,7 +179,7 @@ onMounted(async () => {
             type="button"
             class="flex-1 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition"
             :class="activeTab === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
-            @click="activeTab = 'login'"
+            @click="navigateToTab('login')"
           >
             Entrar
           </button>
@@ -122,7 +187,7 @@ onMounted(async () => {
             type="button"
             class="flex-1 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition"
             :class="activeTab === 'forgot' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
-            @click="activeTab = 'forgot'"
+            @click="navigateToTab('forgot')"
           >
             Recuperar
           </button>
@@ -130,7 +195,7 @@ onMounted(async () => {
             type="button"
             class="flex-1 rounded-2xl px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition"
             :class="activeTab === 'reset' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'"
-            @click="activeTab = 'reset'"
+            @click="navigateToTab('reset')"
           >
             Redefinir
           </button>
@@ -170,12 +235,12 @@ onMounted(async () => {
 
           <div>
             <label class="erp-label">Codigo de recuperacao</label>
-            <input v-model="resetToken" class="erp-field" type="text" required />
+            <input v-model="resetToken" class="erp-field" type="text" autocomplete="one-time-code" required />
           </div>
 
           <div>
             <label class="erp-label">Nova senha</label>
-            <input v-model="resetPassword" class="erp-field" type="password" minlength="6" required />
+            <input v-model="resetPassword" class="erp-field" type="password" autocomplete="new-password" minlength="6" required />
           </div>
 
           <button type="submit" class="erp-button-primary h-11 w-full" :disabled="resetLoading">
