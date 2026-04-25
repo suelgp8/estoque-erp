@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { z } from "zod";
+import { resolveDatabaseUrl } from "./database-url";
 
 dotenv.config();
 
@@ -32,7 +33,13 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   HOST: z.string().default("0.0.0.0"),
   PORT: z.coerce.number().int().positive().default(3000),
-  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  DATABASE_URL: optionalString,
+  DB_HOST: z.string().default("localhost"),
+  DB_PORT: z.coerce.number().int().positive().default(5432),
+  DB_USER: z.string().default("postgres"),
+  DB_PASSWORD: z.string().default("postgres"),
+  DB_NAME: z.string().default("estoque_erp"),
+  DB_SCHEMA: z.string().default("public"),
   JWT_SECRET: z.string().min(1, "JWT_SECRET is required"),
   JWT_EXPIRES_IN: z.string().default("8h"),
   BCRYPT_SALT_ROUNDS: z.coerce.number().int().min(8).max(15).default(10),
@@ -64,6 +71,7 @@ const rawEnv = parsed.data;
 
 export const env = {
   ...rawEnv,
+  DATABASE_URL: resolveDatabaseUrl(rawEnv),
   CORS_ALLOWED_ORIGINS: parseCsvList(rawEnv.CORS_ALLOWED_ORIGINS, [
     "http://localhost",
     "http://127.0.0.1",

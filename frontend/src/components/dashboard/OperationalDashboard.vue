@@ -21,7 +21,7 @@ import {
 } from "../../utils/format";
 
 type PeriodPreset = "today" | "7d" | "30d" | "all";
-type AlertCard = {
+type DashboardCard = {
   label: string;
   value: string;
   helper: string;
@@ -155,6 +155,14 @@ function resolveMovementFlow(row: MovementReportResponse["rows"][number]): strin
   return `${row.sourceBase} -> ${row.destinationBase}`;
 }
 
+function formatSignedNumber(value: number): string {
+  if (value > 0) {
+    return `+${formatNumber(value)}`;
+  }
+
+  return formatNumber(value);
+}
+
 async function loadReferences() {
   if (!auth.state.token) {
     return;
@@ -215,6 +223,10 @@ async function clearFilters() {
   await loadDashboard();
 }
 
+function setPeriod(value: PeriodPreset) {
+  selectedPeriod.value = value;
+}
+
 const authUser = computed(() => auth.state.user);
 const selectedBaseLabel = computed(
   () => knownBases.value.find((base) => base.id === selectedBaseId.value)?.name ?? "Todas as bases"
@@ -247,6 +259,7 @@ const totalStockRows = computed(() => stockRowsDetailed.value.length);
 const monitoredProductsCount = computed(() => new Set(stockRowsDetailed.value.map((row) => row.productId)).size);
 const zeroStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.status === "zero").length);
 const lowStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.status === "low").length);
+const criticalAlertCount = computed(() => zeroStockCount.value + lowStockCount.value);
 const criticalStockRows = computed(() =>
   [...stockRowsDetailed.value]
     .filter((row) => row.status !== "good")
@@ -273,38 +286,43 @@ const pendingMovementCount = computed(() => movementRows.value.filter((row) => r
 const openTransfersCount = computed(() =>
   transferRows.value.filter((row) => row.status === "PENDING" || row.status === "APPROVED").length
 );
+const openWorkCount = computed(() => pendingMovementCount.value + openTransfersCount.value);
 const problemMovementCount = computed(() =>
   movementRows.value.filter((row) => row.status === "REJECTED" || row.status === "CANCELED" || row.status === "REVERSED").length
 );
-
-const alertCards = computed<AlertCard[]>(() => [
-  {
-    label: "Produtos zerados",
-    value: formatNumber(zeroStockCount.value),
-    helper: "Itens sem saldo para atendimento",
-    tone: "border-rose-200 bg-rose-50 text-rose-700"
-  },
-  {
-    label: "Abaixo do minimo",
-    value: formatNumber(lowStockCount.value),
-    helper: "Produtos em alerta de reposicao",
-    tone: "border-amber-200 bg-amber-50 text-amber-700"
-  },
-  {
-    label: "Pendencias de aprovacao",
-    value: formatNumber(pendingMovementCount.value),
-    helper: "Movimentacoes aguardando acao",
-    tone: "border-amber-200 bg-amber-50 text-amber-700"
-  },
-  {
-    label: "Transferencias abertas",
-    value: formatNumber(openTransfersCount.value),
-    helper: "Pendentes ou aprovadas sem conclusao",
-    tone: "border-cyan-200 bg-cyan-50 text-cyan-700"
+const movementBalance = computed(() => entriesInPeriod.value - exitsInPeriod.value);
+const operationStateLabel = computed(() => {
+  if (loading.value) {
+    return "Atualizando";
   }
-]);
 
-const kpiCards = computed<AlertCard[]>(() => [
+  if (criticalAlertCount.value > 0) {
+    return "Estoque em alerta";
+  }
+
+  if (openWorkCount.value > 0) {
+    return "Acoes pendentes";
+  }
+
+  return "Operacao estavel";
+});
+const operationStateTone = computed(() => {
+  if (loading.value) {
+    return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+
+  if (criticalAlertCount.value > 0) {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+
+  if (openWorkCount.value > 0) {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+});
+
+const kpiCards = computed<DashboardCard[]>(() => [
   {
     label: "Volume em estoque",
     value: formatNumber(totalStockQuantity.value),
@@ -415,14 +433,88 @@ const stockByBaseHealth = computed<BaseHealthEntry[]>(() => {
     });
   }
 
-  const ordered = Array.from(grouped.values()).sort((left, right) => right.quantity - left.quantity);
-  const maxValue = ordered[0]?.quantity ?? 0;
+  const ordered = Array.from(grouped.values()).sort((left, right) => {
+    if (left.alertCount !== right.alertCount) {
+      return right.alertCount - left.alertCount;
+    }
+
+    return right.quantity - left.quantity;
+  });
+  const maxValue = Math.max(0, ...ordered.map((entry) => entry.quantity));
 
   return ordered.map((entry) => ({
     ...entry,
     percent: maxValue === 0 ? 0 : Math.max(8, Math.round((entry.quantity / maxValue) * 100))
   }));
 });
+
+const baseWithMostAlerts = computed<BaseHealthEntry | null>(() => {
+  return (
+    stockByBaseHealth.value
+      .filter((entry) => entry.alertCount > 0)
+      .sort((left, right) => {
+        if (left.alertCount !== right.alertCount) {
+          return right.alertCount - left.alertCount;
+        }
+
+        return right.quantity - left.quantity;
+      })[0] ?? null
+  );
+});
+
+const priorityCards = computed<DashboardCard[]>(() => [
+  {
+    label: "Estoque critico",
+    value: formatNumber(criticalAlertCount.value),
+    helper: `${formatNumber(zeroStockCount.value)} zerados | ${formatNumber(lowStockCount.value)} abaixo do minimo`,
+    tone: criticalAlertCount.value > 0 ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+  },
+  {
+    label: "Aprovacoes",
+    value: formatNumber(pendingMovementCount.value),
+    helper: "Movimentacoes aguardando decisao",
+    tone: pendingMovementCount.value > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-700"
+  },
+  {
+    label: "Transferencias",
+    value: formatNumber(openTransfersCount.value),
+    helper: "Abertas para acompanhamento",
+    tone: openTransfersCount.value > 0 ? "border-cyan-200 bg-cyan-50 text-cyan-700" : "border-slate-200 bg-white text-slate-700"
+  },
+  {
+    label: "Ocorrencias",
+    value: formatNumber(problemMovementCount.value),
+    helper: "Rejeicoes, cancelamentos e estornos",
+    tone: problemMovementCount.value > 0 ? "border-slate-300 bg-slate-100 text-slate-800" : "border-slate-200 bg-white text-slate-700"
+  }
+]);
+
+const executiveCards = computed<DashboardCard[]>(() => [
+  {
+    label: "Base analisada",
+    value: selectedBaseLabel.value,
+    helper: selectedPeriodLabel.value,
+    tone: "border-slate-200 bg-white text-slate-700"
+  },
+  {
+    label: "Trabalho aberto",
+    value: formatNumber(openWorkCount.value),
+    helper: "Pendencias e transferencias",
+    tone: openWorkCount.value > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+  },
+  {
+    label: "Saldo do periodo",
+    value: formatSignedNumber(movementBalance.value),
+    helper: "Entradas menos saidas",
+    tone: movementBalance.value < 0 ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+  },
+  {
+    label: "Base com mais alertas",
+    value: baseWithMostAlerts.value?.base ?? "Sem alertas",
+    helper: baseWithMostAlerts.value ? `${formatNumber(baseWithMostAlerts.value.alertCount)} itens em atencao` : "Estoque dentro do esperado",
+    tone: baseWithMostAlerts.value ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
+  }
+]);
 
 const criticalProductsPreview = computed(() => criticalStockRows.value.slice(0, 8));
 
@@ -473,6 +565,21 @@ const movementTrendLast7Days = computed(() => {
   return days;
 });
 
+const maxTrendQuantity = computed(() =>
+  Math.max(
+    0,
+    ...movementTrendLast7Days.value.flatMap((day) => [day.entry, day.exit, day.transfer])
+  )
+);
+
+function resolveTrendBarHeight(value: number): string {
+  if (value <= 0 || maxTrendQuantity.value <= 0) {
+    return "4px";
+  }
+
+  return `${Math.max(12, Math.round((value / maxTrendQuantity.value) * 100))}%`;
+}
+
 onMounted(async () => {
   if (!auth.state.initialized) {
     await auth.bootstrap();
@@ -483,67 +590,101 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="space-y-6">
-    <article class="erp-surface overflow-hidden p-6 sm:p-7 reveal-up">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">Resumo executivo</p>
+  <section class="space-y-5">
+    <article class="erp-surface overflow-hidden p-5 sm:p-6 reveal-up">
+      <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_370px]">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Resumo executivo</p>
+            <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="operationStateTone">
+              {{ operationStateLabel }}
+            </span>
+          </div>
+
           <h1 class="font-heading mt-2 text-3xl text-slate-900">Painel operacional</h1>
-          <p class="mt-2 text-sm text-slate-600">
+          <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             {{ authUser?.name ?? "Usuario" }}
             <span v-if="authUser">({{ formatRole(authUser.role) }})</span>
-            acompanhando indicadores de estoque, pendencias e movimentacoes.
+            acompanhando {{ selectedBaseLabel }} em {{ selectedPeriodLabel.toLowerCase() }}.
           </p>
+
+          <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <article v-for="card in executiveCards" :key="card.label" class="rounded-2xl border px-4 py-3" :class="card.tone">
+              <p class="text-[11px] font-semibold uppercase tracking-[0.14em]">{{ card.label }}</p>
+              <p class="mt-2 min-h-[2.25rem] break-words text-lg font-semibold leading-tight text-slate-900">{{ card.value }}</p>
+              <p class="mt-1 text-xs text-slate-600">{{ card.helper }}</p>
+            </article>
+          </div>
+
+          <div v-if="loadError" class="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {{ loadError }}
+          </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <RouterLink to="/app/reports" class="erp-button-muted">Abrir relatorios</RouterLink>
-          <button type="button" class="erp-button-primary" :disabled="loading" @click="loadDashboard">
-            {{ loading ? "Atualizando..." : "Atualizar dados" }}
-          </button>
-        </div>
-      </div>
+        <aside class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Filtros</p>
+              <p class="mt-1 text-sm font-semibold text-slate-900">{{ selectedBaseLabel }}</p>
+            </div>
+            <button type="button" class="erp-button-muted px-3 py-2 text-xs" :disabled="loading" @click="clearFilters">
+              Limpar
+            </button>
+          </div>
 
-      <div v-if="loadError" class="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-        {{ loadError }}
-      </div>
-    </article>
+          <div class="mt-4">
+            <label class="erp-label">Periodo</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                v-for="option in periodOptions"
+                :key="option.value"
+                type="button"
+                class="rounded-xl border px-3 py-2 text-sm font-semibold transition"
+                :class="
+                  selectedPeriod === option.value
+                    ? 'border-slate-900 bg-slate-900 text-white'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                "
+                :disabled="loading"
+                @click="setPeriod(option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </div>
 
-    <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.04s">
-      <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h2 class="font-heading text-xl text-slate-900">Filtros do painel</h2>
-          <p class="mt-1 text-sm text-slate-500">Refine a operacao por base e por janela de acompanhamento.</p>
-        </div>
+          <div class="mt-4">
+            <label class="erp-label">Base</label>
+            <select v-model="selectedBaseId" class="erp-select" :disabled="referencesLoading || loading">
+              <option value="">Todas as bases</option>
+              <option v-for="base in knownBases" :key="base.id" :value="base.id">{{ base.name }}</option>
+            </select>
+          </div>
 
-        <button type="button" class="erp-button-muted" :disabled="loading" @click="clearFilters">Limpar filtros</button>
-      </div>
+          <div class="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+            <button type="button" class="erp-button-primary w-full" :disabled="loading" @click="loadDashboard">
+              {{ loading ? "Aplicando..." : "Aplicar filtros" }}
+            </button>
+            <button type="button" class="erp-button-muted w-full" :disabled="loading" @click="loadDashboard">
+              {{ loading ? "Atualizando..." : "Atualizar dados" }}
+            </button>
+          </div>
 
-      <div class="mt-5 grid gap-4 md:grid-cols-[220px_minmax(0,1fr)_auto]">
-        <div>
-          <label class="erp-label">Periodo</label>
-          <select v-model="selectedPeriod" class="erp-select" :disabled="loading">
-            <option v-for="option in periodOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-        </div>
-
-        <div>
-          <label class="erp-label">Base</label>
-          <select v-model="selectedBaseId" class="erp-select" :disabled="referencesLoading || loading">
-            <option value="">Todas as bases</option>
-            <option v-for="base in knownBases" :key="base.id" :value="base.id">{{ base.name }}</option>
-          </select>
-        </div>
-
-        <button type="button" class="erp-button-primary md:self-end" :disabled="loading" @click="loadDashboard">
-          {{ loading ? "Filtrando..." : "Aplicar" }}
-        </button>
+          <RouterLink to="/app/reports" class="erp-button-muted mt-2 w-full text-center">
+            Abrir relatorios
+          </RouterLink>
+        </aside>
       </div>
     </article>
 
     <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <article v-for="card in alertCards" :key="card.label" class="rounded-[28px] border p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.28)]" :class="card.tone">
-        <p class="text-xs font-semibold uppercase tracking-[0.16em]">{{ card.label }}</p>
+      <article
+        v-for="card in priorityCards"
+        :key="card.label"
+        class="rounded-2xl border p-4 shadow-[0_18px_42px_-32px_rgba(15,23,42,0.28)] reveal-up"
+        :class="card.tone"
+      >
+        <p class="text-xs font-semibold uppercase tracking-[0.14em]">{{ card.label }}</p>
         <p class="font-heading mt-3 text-3xl text-slate-900">{{ card.value }}</p>
         <p class="mt-2 text-sm text-slate-600">{{ card.helper }}</p>
       </article>
@@ -557,23 +698,23 @@ onMounted(async () => {
       </article>
     </section>
 
-    <section class="grid gap-6 xl:grid-cols-[1.1fr_1fr]">
+    <section class="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.08s">
-        <div class="mb-4">
-          <h2 class="font-heading text-xl text-slate-900">A fazer agora</h2>
-          <p class="mt-1 text-sm text-slate-500">Fila operacional baseada no filtro atual.</p>
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 class="font-heading text-xl text-slate-900">A fazer agora</h2>
+            <p class="mt-1 text-sm text-slate-500">Prioridades do filtro atual.</p>
+          </div>
+          <span class="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+            {{ formatNumber(openWorkCount) }} abertas
+          </span>
         </div>
 
         <div class="space-y-3">
-          <article
-            v-for="item in todoItems"
-            :key="item.label"
-            class="rounded-2xl border p-4"
-            :class="item.tone"
-          >
+          <article v-for="item in todoItems" :key="item.label" class="rounded-2xl border p-4" :class="item.tone">
             <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div class="flex items-center gap-3">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-3">
                   <p class="text-sm font-semibold text-slate-900">{{ item.label }}</p>
                   <span class="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
                     {{ formatNumber(item.count) }}
@@ -591,53 +732,64 @@ onMounted(async () => {
       </article>
 
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.12s">
-        <div class="mb-4">
-          <h2 class="font-heading text-xl text-slate-900">Saude por base</h2>
-          <p class="mt-1 text-sm text-slate-500">Saldo, cobertura e alertas por base operacional.</p>
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 class="font-heading text-xl text-slate-900">Tendencia 7 dias</h2>
+            <p class="mt-1 text-sm text-slate-500">Entradas, saidas e transferencias.</p>
+          </div>
+          <span class="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+            Saldo {{ formatSignedNumber(movementBalance) }}
+          </span>
         </div>
 
-        <div v-if="stockByBaseHealth.length === 0" class="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
-          Sem dados de estoque para exibir.
-        </div>
-
-        <div v-else class="space-y-4">
-          <article v-for="entry in stockByBaseHealth" :key="entry.baseId" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <p class="font-semibold text-slate-900">{{ entry.base }}</p>
-                <p class="mt-1 text-xs text-slate-500">
-                  {{ entry.monitored }} itens monitorados | {{ entry.alertCount }} alertas
-                </p>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-4 sm:px-4">
+          <div class="grid h-44 grid-cols-7 items-end gap-2">
+            <div v-for="day in movementTrendLast7Days" :key="day.key" class="flex h-full min-w-0 flex-col items-center justify-end gap-2">
+              <div class="flex h-32 w-full items-end justify-center gap-1">
+                <span
+                  class="w-2 rounded-t bg-emerald-500 transition-all duration-500"
+                  :style="{ height: resolveTrendBarHeight(day.entry) }"
+                  :title="`Entradas: ${formatNumber(day.entry)}`"
+                />
+                <span
+                  class="w-2 rounded-t bg-cyan-500 transition-all duration-500"
+                  :style="{ height: resolveTrendBarHeight(day.exit) }"
+                  :title="`Saidas: ${formatNumber(day.exit)}`"
+                />
+                <span
+                  class="w-2 rounded-t bg-indigo-500 transition-all duration-500"
+                  :style="{ height: resolveTrendBarHeight(day.transfer) }"
+                  :title="`Transferencias: ${formatNumber(day.transfer)}`"
+                />
               </div>
-              <span class="text-sm font-semibold text-slate-800">{{ formatNumber(entry.quantity) }}</span>
+              <p class="truncate text-[11px] font-semibold text-slate-500">{{ day.label }}</p>
             </div>
+          </div>
 
-            <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-              <div
-                class="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-500 transition-all duration-500"
-                :style="{ width: `${entry.percent}%` }"
-              />
-            </div>
-
-            <div class="mt-3 flex flex-wrap gap-2 text-xs">
-              <span class="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-slate-600">
-                Zerados {{ formatNumber(entry.zeroCount) }}
-              </span>
-              <span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700">
-                Baixo {{ formatNumber(entry.lowCount) }}
-              </span>
-            </div>
-          </article>
+          <div class="mt-4 flex flex-wrap gap-3 text-xs font-semibold text-slate-600">
+            <span class="inline-flex items-center gap-1.5">
+              <span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+              Entradas
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+              <span class="h-2.5 w-2.5 rounded-full bg-cyan-500"></span>
+              Saidas
+            </span>
+            <span class="inline-flex items-center gap-1.5">
+              <span class="h-2.5 w-2.5 rounded-full bg-indigo-500"></span>
+              Transferencias
+            </span>
+          </div>
         </div>
       </article>
     </section>
 
-    <section class="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
+    <section class="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.16s">
-        <div class="mb-4 flex items-center justify-between gap-3">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 class="font-heading text-xl text-slate-900">Produtos criticos</h2>
-            <p class="mt-1 text-sm text-slate-500">Produtos zerados ou abaixo do minimo por base.</p>
+            <p class="mt-1 text-sm text-slate-500">Zerados ou abaixo do minimo por base.</p>
           </div>
           <RouterLink to="/app/products" class="erp-button-muted text-sm">Abrir produtos</RouterLink>
         </div>
@@ -678,22 +830,39 @@ onMounted(async () => {
 
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.2s">
         <div class="mb-4">
-          <h2 class="font-heading text-xl text-slate-900">Tendencia 7 dias</h2>
-          <p class="mt-1 text-sm text-slate-500">Entradas, saidas e transferencias por dia.</p>
+          <h2 class="font-heading text-xl text-slate-900">Saude por base</h2>
+          <p class="mt-1 text-sm text-slate-500">Bases com mais alertas aparecem primeiro.</p>
         </div>
 
-        <div class="grid gap-3 sm:grid-cols-2">
-          <article v-for="day in movementTrendLast7Days" :key="day.key" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p class="text-sm font-semibold text-slate-900">{{ day.label }}</p>
+        <div v-if="stockByBaseHealth.length === 0" class="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
+          Sem dados de estoque para exibir.
+        </div>
+
+        <div v-else class="space-y-3">
+          <article v-for="entry in stockByBaseHealth" :key="entry.baseId" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <p class="break-words font-semibold text-slate-900">{{ entry.base }}</p>
+                <p class="mt-1 text-xs text-slate-500">
+                  {{ entry.monitored }} itens | {{ entry.alertCount }} alertas
+                </p>
+              </div>
+              <span class="shrink-0 text-sm font-semibold text-slate-800">{{ formatNumber(entry.quantity) }}</span>
+            </div>
+
+            <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                class="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-500 transition-all duration-500"
+                :style="{ width: `${entry.percent}%` }"
+              />
+            </div>
+
             <div class="mt-3 flex flex-wrap gap-2 text-xs">
-              <span class="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700">
-                E {{ formatNumber(day.entry) }}
+              <span class="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-rose-700">
+                Zerados {{ formatNumber(entry.zeroCount) }}
               </span>
-              <span class="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-cyan-700">
-                S {{ formatNumber(day.exit) }}
-              </span>
-              <span class="inline-flex rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-indigo-700">
-                T {{ formatNumber(day.transfer) }}
+              <span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700">
+                Baixo {{ formatNumber(entry.lowCount) }}
               </span>
             </div>
           </article>
@@ -701,95 +870,89 @@ onMounted(async () => {
       </article>
     </section>
 
-    <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.24s">
-      <div class="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h2 class="font-heading text-xl text-slate-900">Atividade recente</h2>
-          <p class="mt-1 text-sm text-slate-500">Leitura rapida das ultimas ocorrencias registradas.</p>
+    <section class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.24s">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <h2 class="font-heading text-xl text-slate-900">Atividade recente</h2>
+            <p class="mt-1 text-sm text-slate-500">Ultimas ocorrencias registradas.</p>
+          </div>
+          <p class="text-xs uppercase tracking-[0.15em] text-slate-500">Ultimas 8</p>
         </div>
-        <p class="text-xs uppercase tracking-[0.15em] text-slate-500">Ultimas 8</p>
-      </div>
 
-      <div class="erp-table-wrap">
-        <table class="erp-table">
-          <thead>
-            <tr>
-              <th>Tipo</th>
-              <th>Resumo</th>
-              <th>Fluxo</th>
-              <th>Responsavel</th>
-              <th>Status</th>
-              <th>Criado em</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="recentMovements.length === 0">
-              <td colspan="6" class="text-center text-slate-500">Nenhuma movimentacao encontrada.</td>
-            </tr>
-            <tr v-for="movement in recentMovements" :key="movement.id">
-              <td data-label="Tipo" class="font-medium text-slate-900">{{ formatMovementType(movement.type) }}</td>
-              <td data-label="Resumo">
-                <span class="block text-slate-800">{{ summarizeMovementItems(movement.items) }}</span>
-                <span class="mt-1 block text-xs text-slate-500">Qtd {{ formatNumber(movement.totalQuantity) }}</span>
-              </td>
-              <td data-label="Fluxo">{{ resolveMovementFlow(movement) }}</td>
-              <td data-label="Responsavel">{{ movement.createdBy }}</td>
-              <td data-label="Status">
-                <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="movementStatusTone(movement.status)">
-                  {{ formatMovementStatus(movement.status) }}
-                </span>
-              </td>
-              <td data-label="Criado em">{{ formatDateTime(movement.createdAt) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
-
-    <section class="grid gap-6 xl:grid-cols-[1fr_320px]">
-      <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.28s">
-        <h2 class="font-heading text-xl text-slate-900">Status das movimentacoes</h2>
-        <p class="mt-1 text-sm text-slate-500">Distribuicao por etapa do fluxo operacional.</p>
-
-        <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div
-            v-for="entry in movementStatusSummary"
-            :key="entry.status"
-            class="rounded-xl border px-4 py-4"
-            :class="movementStatusTone(entry.status)"
-          >
-            <p class="text-xs font-semibold uppercase tracking-[0.12em]">{{ formatMovementStatus(entry.status) }}</p>
-            <p class="font-heading mt-2 text-2xl">{{ formatNumber(entry.count) }}</p>
-          </div>
-          <div
-            v-if="movementStatusSummary.length === 0"
-            class="col-span-full rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500"
-          >
-            Nenhum registro encontrado para montar o painel de status.
-          </div>
+        <div class="erp-table-wrap">
+          <table class="erp-table">
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Resumo</th>
+                <th>Fluxo</th>
+                <th>Responsavel</th>
+                <th>Status</th>
+                <th>Criado em</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="recentMovements.length === 0">
+                <td colspan="6" class="text-center text-slate-500">Nenhuma movimentacao encontrada.</td>
+              </tr>
+              <tr v-for="movement in recentMovements" :key="movement.id">
+                <td data-label="Tipo" class="font-medium text-slate-900">{{ formatMovementType(movement.type) }}</td>
+                <td data-label="Resumo">
+                  <span class="block text-slate-800">{{ summarizeMovementItems(movement.items) }}</span>
+                  <span class="mt-1 block text-xs text-slate-500">Qtd {{ formatNumber(movement.totalQuantity) }}</span>
+                </td>
+                <td data-label="Fluxo">{{ resolveMovementFlow(movement) }}</td>
+                <td data-label="Responsavel">{{ movement.createdBy }}</td>
+                <td data-label="Status">
+                  <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="movementStatusTone(movement.status)">
+                    {{ formatMovementStatus(movement.status) }}
+                  </span>
+                </td>
+                <td data-label="Criado em">{{ formatDateTime(movement.createdAt) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </article>
 
-      <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.32s">
-        <h2 class="font-heading text-xl text-slate-900">Atalhos rapidos</h2>
-        <p class="mt-1 text-sm text-slate-500">Acoes mais comuns para seguir a operacao.</p>
+      <aside class="space-y-6">
+        <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.28s">
+          <h2 class="font-heading text-xl text-slate-900">Status</h2>
+          <p class="mt-1 text-sm text-slate-500">Movimentacoes por etapa.</p>
 
-        <div class="mt-4 grid gap-3">
-          <RouterLink to="/app/movements" class="erp-button-primary text-center">Criar movimentacao</RouterLink>
-          <RouterLink to="/app/products" class="erp-button-muted text-center">Ver produtos criticos</RouterLink>
-          <RouterLink to="/app/movements" class="erp-button-muted text-center">Ver transferencias</RouterLink>
-          <RouterLink to="/app/reports" class="erp-button-muted text-center">Abrir relatorios</RouterLink>
-        </div>
-
-        <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Contexto atual</p>
-          <div class="mt-3 space-y-2 text-sm text-slate-600">
-            <p><span class="font-semibold text-slate-800">Base:</span> {{ selectedBaseLabel }}</p>
-            <p><span class="font-semibold text-slate-800">Periodo:</span> {{ selectedPeriodLabel }}</p>
-            <p><span class="font-semibold text-slate-800">Ocorrencias com problema:</span> {{ formatNumber(problemMovementCount) }}</p>
+          <div class="mt-4 grid gap-3">
+            <div
+              v-for="entry in movementStatusSummary"
+              :key="entry.status"
+              class="rounded-xl border px-4 py-3"
+              :class="movementStatusTone(entry.status)"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs font-semibold uppercase tracking-[0.12em]">{{ formatMovementStatus(entry.status) }}</p>
+                <p class="font-heading text-2xl">{{ formatNumber(entry.count) }}</p>
+              </div>
+            </div>
+            <div
+              v-if="movementStatusSummary.length === 0"
+              class="rounded-xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500"
+            >
+              Nenhum registro encontrado.
+            </div>
           </div>
-        </div>
-      </article>
+        </article>
+
+        <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.32s">
+          <h2 class="font-heading text-xl text-slate-900">Atalhos</h2>
+
+          <div class="mt-4 grid gap-3">
+            <RouterLink to="/app/movements" class="erp-button-primary text-center">Criar movimentacao</RouterLink>
+            <RouterLink to="/app/products" class="erp-button-muted text-center">Produtos criticos</RouterLink>
+            <RouterLink to="/app/movements" class="erp-button-muted text-center">Transferencias</RouterLink>
+            <RouterLink to="/app/reports" class="erp-button-muted text-center">Relatorios</RouterLink>
+          </div>
+        </article>
+      </aside>
     </section>
   </section>
 </template>

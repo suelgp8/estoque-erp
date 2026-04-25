@@ -1,3 +1,16 @@
+FROM node:20-alpine AS development
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY frontend/package.json ./frontend/package.json
+
+RUN npm ci --workspace frontend --include-workspace-root=false
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--workspace", "frontend"]
+
 FROM node:20-alpine AS builder
 
 WORKDIR /app

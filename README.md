@@ -1,111 +1,351 @@
 # Estoque ERP
 
-Aplicacao de controle de estoque em monorepo, com frontend Vue, backend Node/Express e Postgres local via Docker.
+Sistema web para controle de estoque, produtos, bases, movimentacoes, transferencias, usuarios e relatorios.
 
-## Stack
+O projeto esta preparado para dois ambientes isolados:
 
-- Frontend: Vue 3 + Vite + TypeScript
-- Backend: Node.js + Express + Prisma
-- Banco de dados: Postgres 16
-- Infra local: Docker Compose
+- desenvolvimento: `docker-compose.dev.yml`, banco `dev_db`, hot reload
+- producao: `docker-compose.prod.yml`, banco `prod_db`, sem volume de codigo
 
-## Estrutura do repositorio
+O fluxo antigo com `npm run dev` foi mantido para nao quebrar o ambiente local existente.
+
+## Tecnologias
+
+- Frontend: Vue 3, Vite, TypeScript, Tailwind CSS
+- Backend: Node.js, Express, Prisma
+- Banco: PostgreSQL 16
+- Infra: Docker Compose, Nginx, Cloudflare Tunnel
+
+## Estrutura
 
 - `frontend/`: aplicacao web
-- `backend/`: API, autenticacao, relatorios e acesso ao banco
-- `drizzle/`: migrations SQL auxiliares e historicas
-- `scripts/`: scripts locais de apoio
-- `docker-compose.yml`: Postgres para desenvolvimento
+- `backend/`: API, Prisma, autenticacao, regras de negocio e relatorios
+- `backend/prisma/migrations/`: migrations do banco
+- `backend/prisma-prod/migrations/`: baseline de producao para banco limpo
+- `docker-compose.dev.yml`: ambiente Docker de desenvolvimento
+- `docker-compose.prod.yml`: ambiente Docker de producao
+- `.env.dev.example`: modelo de variaveis para desenvolvimento
+- `.env.prod.example`: modelo de variaveis para producao
+- `.env.example`: modelo geral
 
-## Guias do repositorio
+## Variaveis de ambiente
 
-- [Fluxo de contribuicao](./CONTRIBUTING.md)
-- [Guia de deploy na VPS](./docs/deploy-vps.md)
+Arquivos reais de ambiente nao devem ser commitados:
 
-## Requisitos
+- `.env`
+- `.env.dev`
+- `.env.prod`
+- `backend/.env`
 
-- Node.js 20 ou superior
-- npm
-- Docker Desktop em execucao
-- Git
-
-## Configuracao inicial
-
-1. instale as dependencias na raiz:
+Crie os arquivos a partir dos modelos:
 
 ```bash
-npm install
+cp .env.dev.example .env.dev
+cp .env.prod.example .env.prod
 ```
 
-2. crie `backend/.env` a partir de `backend/.env.example`
-3. ajuste as variaveis se precisar de outro banco, URL publica ou SMTP
+No Windows PowerShell:
 
-## Subir tudo
+```powershell
+Copy-Item .env.dev.example .env.dev
+Copy-Item .env.prod.example .env.prod
+```
 
-Na raiz do projeto:
+Variaveis principais:
+
+- `DB_HOST`: host do Postgres dentro do Docker, normalmente `postgres`
+- `DB_PORT`: porta interna do Postgres, normalmente `5432`
+- `DB_NAME`: `dev_db` no dev e `prod_db` na producao
+- `DB_USER`: usuario do banco
+- `DB_PASSWORD`: senha do banco
+- `PORT`: porta interna do backend, normalmente `3000`
+- `PRISMA_MIGRATIONS_PATH`: caminho de migrations usado pelo Docker, normalmente `prisma-prod/migrations`
+- `JWT_SECRET`: segredo forte para tokens
+- `APP_BASE_URL`: URL publica do frontend
+- `CORS_ALLOWED_ORIGINS`: origens permitidas para chamadas HTTP
+
+As variaveis `POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD` devem acompanhar os valores de `DB_NAME`, `DB_USER` e `DB_PASSWORD`, porque sao lidas pela imagem oficial do Postgres.
+
+## Desenvolvimento com Docker
+
+1. Crie `.env.dev`:
+
+```bash
+cp .env.dev.example .env.dev
+```
+
+2. Suba o ambiente:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Atalhos equivalentes:
+
+```bash
+npm run dev:docker
+```
+
+Enderecos:
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:3000`
+- Banco: `localhost:5432`, database `dev_db`
+
+O backend roda com hot reload via `nodemon`; o frontend roda com Vite. O codigo local e montado nos containers apenas no ambiente de desenvolvimento.
+O Docker de desenvolvimento tambem usa a baseline em `backend/prisma-prod/migrations` para permitir `dev_db` limpo.
+
+Para parar:
+
+```bash
+docker compose -f docker-compose.dev.yml down
+```
+
+Para apagar o banco de desenvolvimento e subir limpo:
+
+```bash
+docker compose -f docker-compose.dev.yml down -v
+docker compose -f docker-compose.dev.yml up --build
+```
+
+## Desenvolvimento local antigo
+
+O comando abaixo continua disponivel:
 
 ```bash
 npm run dev
 ```
 
-Esse comando faz automaticamente:
+Ele usa Node local e Docker para o Postgres, como antes. Para novos ambientes, prefira `docker-compose.dev.yml`.
 
-1. sobe o Postgres no Docker
-2. aplica as migrations do backend
-3. garante um usuario admin de teste
-4. inicia backend e frontend em modo desenvolvimento
+## Producao com Docker
 
-## Enderecos locais
+Na maquina da empresa:
 
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:3000`
+1. Instale Docker e Git.
+2. Clone o repositorio.
+3. Crie `.env.prod`.
+4. Troque todas as senhas e URLs de producao.
+5. Suba os containers.
 
-## Usuario de teste
-
-Por padrao, `npm run dev` garante este login:
-
-- Email: `admin@estoque.local`
-- Senha: `admin123`
-
-Se quiser trocar isso, adicione no `backend/.env`:
-
-```env
-DEV_ADMIN_NAME="Admin de Teste"
-DEV_ADMIN_EMAIL="admin@estoque.local"
-DEV_ADMIN_PASSWORD="admin123"
+```bash
+git clone <repo>
+cd estoque-erp
+cp .env.prod.example .env.prod
+docker compose -f docker-compose.prod.yml up --build -d
 ```
 
-## Teste remoto pelo VS Code
+No Windows PowerShell:
 
-Com o projeto rodando em `npm run dev`, voce pode testar a aplicacao remotamente usando o encaminhamento de portas do VS Code.
+```powershell
+git clone <repo>
+cd estoque-erp
+Copy-Item .env.prod.example .env.prod
+docker compose -f docker-compose.prod.yml up --build -d
+```
 
-1. abra a view `Ports` no VS Code
-2. encaminhe a porta `5173`
-3. use a URL publica gerada para abrir o frontend remotamente
+Enderecos em producao:
 
-O frontend usa `/api` por padrao e o Vite encaminha essas requisicoes para o backend local em `http://127.0.0.1:3000`, entao normalmente nao e necessario publicar a porta `3000`.
+- Aplicacao/Nginx: `http://localhost:8080`
+- Backend: interno na rede Docker, porta `3000`
+- Postgres: interno na rede Docker, database `prod_db`
 
-Se voce quiser testar recuperacao de senha por link, ajuste `APP_BASE_URL` no `backend/.env` para a URL publica do frontend.
+O `docker-compose.prod.yml` nao monta volume de codigo. Apenas o Postgres usa volume persistente:
 
-## Comandos uteis
+- `estoque_prod_postgres_data`
 
-- `npm run dev`: prepara ambiente e sobe tudo
-- `npm run db:up`: sobe apenas o Postgres
-- `npm run db:down`: para apenas o Postgres
-- `npm run db:logs`: acompanha logs do banco
-- `npm run migrate`: aplica migrations do backend
-- `npm run dev:user`: cria ou reseta o usuario admin de teste
-- `npm run dev:backend`: sobe apenas o backend
-- `npm run dev:frontend`: sobe apenas o frontend
-- `npm run build`: gera build do backend e do frontend
+## Banco limpo em producao
 
-## Fluxo de versionamento
+Na primeira execucao em uma maquina nova, o volume `estoque_prod_postgres_data` nao existe; o Postgres cria o banco `prod_db` vazio. O backend aplica as migrations automaticamente com:
 
-- `main`: historico principal e mais estavel
-- `develop`: integracao do trabalho em andamento
-- branches curtas: `feature/...`, `fix/...`, `chore/...`, sempre partindo de `develop`
+```bash
+npm run prisma:migrate:deploy
+```
 
-## Observacoes
+Esse comando ja esta no `command` do container backend de producao.
+Em producao, o compose define `PRISMA_MIGRATIONS_PATH=prisma-prod/migrations`, usando uma baseline limpa do schema atual. As migrations legadas em `backend/prisma/migrations` foram mantidas para nao quebrar bancos de desenvolvimento existentes.
 
-- arquivos `.env`, builds e logs ficam fora do Git
-- o repositorio usa `.gitattributes` e `.editorconfig` para reduzir ruido de formatacao entre ambientes
+Para recriar o banco de producao do zero, com perda total dos dados:
+
+```bash
+docker compose -f docker-compose.prod.yml down -v
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+Use isso apenas antes de operar com dados reais ou quando houver backup validado.
+
+Para rodar migrations manualmente:
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend npm run prisma:migrate:deploy
+```
+
+## Usuario inicial
+
+Se o banco estiver vazio e nao houver usuario `ADMIN`, o backend cria um admin inicial com:
+
+- `DEFAULT_ADMIN_NAME`
+- `DEFAULT_ADMIN_EMAIL`
+- `DEFAULT_ADMIN_PASSWORD`
+
+Em producao, altere a senha no `.env.prod` antes da primeira subida e troque a senha no primeiro login.
+
+## Cloudflare Tunnel
+
+O frontend de producao fica em `http://localhost:8080`. O Cloudflare Tunnel deve apontar para essa porta.
+
+Opcao recomendada pela Cloudflare: crie um tunnel no dashboard Zero Trust, publique o hostname apontando para `http://localhost:8080` e instale o conector na maquina da empresa com o token gerado.
+
+Exemplo com Docker:
+
+```bash
+docker run cloudflare/cloudflared:latest tunnel --no-autoupdate run --token <TUNNEL_TOKEN>
+```
+
+Exemplo rapido para teste, sem hostname fixo:
+
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+Exemplo de tunnel localmente gerenciado:
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create estoque-erp
+cloudflared tunnel route dns estoque-erp estoque.suaempresa.com.br
+```
+
+Crie o arquivo de configuracao do `cloudflared` com ingresso para a aplicacao:
+
+```yaml
+tunnel: <TUNNEL_ID>
+credentials-file: /caminho/para/<TUNNEL_ID>.json
+
+ingress:
+  - hostname: estoque.suaempresa.com.br
+    service: http://localhost:8080
+  - service: http_status:404
+```
+
+Depois rode:
+
+```bash
+cloudflared tunnel run estoque-erp
+```
+
+Depois ajuste `.env.prod`:
+
+```env
+APP_BASE_URL=https://estoque.suaempresa.com.br
+CORS_ALLOWED_ORIGINS=https://estoque.suaempresa.com.br
+```
+
+Recrie os containers apos mudar `.env.prod`:
+
+```bash
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+## Parar, reiniciar e logs
+
+Desenvolvimento:
+
+```bash
+docker compose -f docker-compose.dev.yml down
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Producao:
+
+```bash
+docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up --build -d
+docker compose -f docker-compose.prod.yml logs -f
+```
+
+Atalhos npm:
+
+```bash
+npm run dev:docker
+npm run dev:docker:down
+npm run prod:up
+npm run prod:down
+npm run prod:logs
+```
+
+## Atualizar producao
+
+Na maquina da empresa:
+
+```bash
+git pull
+docker compose -f docker-compose.prod.yml up --build -d
+```
+
+As migrations pendentes serao aplicadas pelo backend ao subir.
+
+## GitHub
+
+Antes de commitar, confira:
+
+```bash
+git status
+```
+
+Arquivos `.env`, logs, `node_modules`, builds e volumes nao devem entrar no Git.
+
+Comandos iniciais:
+
+```bash
+git init
+git add .
+git commit -m "Production-ready setup with env separation"
+git remote add origin <repo>
+git push -u origin main
+```
+
+## Troubleshooting
+
+Docker nao esta rodando:
+
+```bash
+docker info
+```
+
+Se falhar, abra o Docker Desktop ou inicie o daemon na maquina.
+
+Porta ocupada:
+
+- dev usa `5173`, `3000`, `5432`
+- prod usa `8080`
+
+Pare o processo que usa a porta ou altere o compose.
+
+Banco errado ou dados antigos:
+
+```bash
+docker compose -f docker-compose.dev.yml down -v
+docker compose -f docker-compose.prod.yml down -v
+```
+
+Use o comando certo para o ambiente certo. Dev usa `dev_db`; producao usa `prod_db`.
+
+Erro de login no primeiro acesso:
+
+- confirme `DEFAULT_ADMIN_EMAIL` e `DEFAULT_ADMIN_PASSWORD` no `.env.prod`
+- se o admin ja foi criado antes, mudar o `.env.prod` nao altera a senha existente
+- para ambiente ainda sem dados reais, recrie o volume com `down -v`
+
+Erro de API no frontend:
+
+- em producao, acesse pelo Nginx em `http://localhost:8080`
+- confira se `/api/health` responde
+- confira logs com `docker compose -f docker-compose.prod.yml logs -f backend`
+
+Erro de migrations:
+
+```bash
+docker compose -f docker-compose.prod.yml logs -f backend
+docker compose -f docker-compose.prod.yml exec backend npm run prisma:migrate:deploy
+```
