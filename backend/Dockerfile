@@ -31,6 +31,7 @@ RUN npm ci --workspace backend --include-workspace-root=false
 COPY backend/prisma.config.ts ./backend/prisma.config.ts
 COPY backend/tsconfig.json ./backend/tsconfig.json
 COPY backend/prisma ./backend/prisma
+COPY backend/scripts ./backend/scripts
 COPY backend/src ./backend/src
 
 RUN npm run prisma:generate --workspace backend
@@ -53,7 +54,7 @@ RUN npm ci --omit=dev --workspace backend --include-workspace-root=false && npm 
 COPY backend/prisma.config.ts ./backend/prisma.config.ts
 COPY backend/src/config/database-url.ts ./backend/src/config/database-url.ts
 COPY backend/prisma ./backend/prisma
-COPY backend/prisma-prod ./backend/prisma-prod
+COPY backend/scripts ./backend/scripts
 RUN npm run prisma:generate --workspace backend
 
 COPY --from=builder /app/backend/dist ./backend/dist

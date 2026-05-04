@@ -1,351 +1,204 @@
 # Estoque ERP
 
-Sistema web para controle de estoque, produtos, bases, movimentacoes, transferencias, usuarios e relatorios.
+Monorepo com frontend, backend, Prisma e PostgreSQL.
 
-O projeto esta preparado para dois ambientes isolados:
+O fluxo oficial local agora e Docker-first e foi ajustado para eliminar o problema de migrations duplicadas em maquina nova ou em banco legado de desenvolvimento.
 
-- desenvolvimento: `docker-compose.dev.yml`, banco `dev_db`, hot reload
-- producao: `docker-compose.prod.yml`, banco `prod_db`, sem volume de codigo
+## Stack
 
-O fluxo antigo com `npm run dev` foi mantido para nao quebrar o ambiente local existente.
-
-## Tecnologias
-
-- Frontend: Vue 3, Vite, TypeScript, Tailwind CSS
+- Frontend: Vue 3, Vite, TypeScript
 - Backend: Node.js, Express, Prisma
 - Banco: PostgreSQL 16
-- Infra: Docker Compose, Nginx, Cloudflare Tunnel
+- Infra local: Docker Compose
 
-## Estrutura
+## O que mudou
 
-- `frontend/`: aplicacao web
-- `backend/`: API, Prisma, autenticacao, regras de negocio e relatorios
-- `backend/prisma/migrations/`: migrations do banco
-- `backend/prisma-prod/migrations/`: baseline de producao para banco limpo
-- `docker-compose.dev.yml`: ambiente Docker de desenvolvimento
-- `docker-compose.prod.yml`: ambiente Docker de producao
-- `.env.dev.example`: modelo de variaveis para desenvolvimento
-- `.env.prod.example`: modelo de variaveis para producao
-- `.env.example`: modelo geral
+- `docker-compose.yml` virou o ponto de entrada oficial do ambiente local
+- o backend espera o Postgres ficar pronto antes de inicializar
+- o bootstrap do Prisma agora usa migrations versionadas tanto no local quanto na producao
+- o caminho canonico de migrations agora e `backend/prisma/migrations`
+- a cadeia antiga foi arquivada em `backend/prisma/migrations_legacy`
+- o workaround `prisma-prod` saiu do fluxo
 
-## Variaveis de ambiente
+## Subida rapida
 
-Arquivos reais de ambiente nao devem ser commitados:
-
-- `.env`
-- `.env.dev`
-- `.env.prod`
-- `backend/.env`
-
-Crie os arquivos a partir dos modelos:
+Clone o projeto e suba:
 
 ```bash
+git clone <repo>
+cd estoque-erp
+docker compose up -d --build
+```
+
+Se quiser gerar os arquivos `.env`, `.env.dev` e `.env.prod` automaticamente antes de subir:
+
+```bash
+npm run setup
+```
+
+URLs locais:
+
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:3000`
+- Healthcheck: `http://localhost:3000/health`
+- PostgreSQL: `localhost:5432`
+
+## Arquivos de ambiente
+
+Fonte principal:
+
+- `.env.example`
+
+Presets auxiliares:
+
+- `.env.dev.example`
+- `.env.prod.example`
+- `backend/.env.example` para rodar backend fora do Docker
+
+Copias comuns:
+
+```bash
+cp .env.example .env
 cp .env.dev.example .env.dev
 cp .env.prod.example .env.prod
 ```
 
-No Windows PowerShell:
+PowerShell:
 
 ```powershell
+Copy-Item .env.example .env
 Copy-Item .env.dev.example .env.dev
 Copy-Item .env.prod.example .env.prod
 ```
 
-Variaveis principais:
+Variaveis criticas:
 
-- `DB_HOST`: host do Postgres dentro do Docker, normalmente `postgres`
-- `DB_PORT`: porta interna do Postgres, normalmente `5432`
-- `DB_NAME`: `dev_db` no dev e `prod_db` na producao
-- `DB_USER`: usuario do banco
-- `DB_PASSWORD`: senha do banco
-- `PORT`: porta interna do backend, normalmente `3000`
-- `PRISMA_MIGRATIONS_PATH`: caminho de migrations usado pelo Docker, normalmente `prisma-prod/migrations`
-- `JWT_SECRET`: segredo forte para tokens
-- `APP_BASE_URL`: URL publica do frontend
-- `CORS_ALLOWED_ORIGINS`: origens permitidas para chamadas HTTP
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SCHEMA`
+- `DATABASE_URL` apenas se quiser sobrescrever os `DB_*`
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` sempre alinhados com os `DB_*`
+- `PRISMA_BOOTSTRAP_MODE=migrate` no ambiente local
+- `PRISMA_BOOTSTRAP_MODE=migrate` em producao
 
-As variaveis `POSTGRES_DB`, `POSTGRES_USER` e `POSTGRES_PASSWORD` devem acompanhar os valores de `DB_NAME`, `DB_USER` e `DB_PASSWORD`, porque sao lidas pela imagem oficial do Postgres.
+## Estrategia do Prisma
 
-## Desenvolvimento com Docker
+Regras do projeto:
 
-1. Crie `.env.dev`:
+- o `docker-compose.yml` local usa `prisma migrate deploy` para aplicar apenas migrations versionadas
+- use `npm run prisma:migrate:dev` apenas quando alterar `schema.prisma` e precisar versionar uma nova migration
+- use `npm run prisma:migrate:deploy` para bootstrap do ambiente compartilhado e para producao
+- use `prisma migrate reset` apenas para reset intencional de banco de desenvolvimento
 
-```bash
-cp .env.dev.example .env.dev
-```
+Comportamento do bootstrap:
 
-2. Suba o ambiente:
+1. backend espera o banco responder
+2. roda `prisma generate`
+3. aplica o fluxo definido em `PRISMA_BOOTSTRAP_MODE`
+4. sobe a API
 
-```bash
-docker compose -f docker-compose.dev.yml up --build
-```
+No modo `migrate`, se o banco ja tiver schema mas ainda nao tiver tabela `_prisma_migrations`, o backend marca a baseline atual como aplicada e continua o `deploy`. Isso evita o erro de `type already exists` em bancos herdados sem historico do Prisma.
 
-Atalhos equivalentes:
-
-```bash
-npm run dev:docker
-```
-
-Enderecos:
-
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:3000`
-- Banco: `localhost:5432`, database `dev_db`
-
-O backend roda com hot reload via `nodemon`; o frontend roda com Vite. O codigo local e montado nos containers apenas no ambiente de desenvolvimento.
-O Docker de desenvolvimento tambem usa a baseline em `backend/prisma-prod/migrations` para permitir `dev_db` limpo.
-
-Para parar:
-
-```bash
-docker compose -f docker-compose.dev.yml down
-```
-
-Para apagar o banco de desenvolvimento e subir limpo:
-
-```bash
-docker compose -f docker-compose.dev.yml down -v
-docker compose -f docker-compose.dev.yml up --build
-```
-
-## Desenvolvimento local antigo
-
-O comando abaixo continua disponivel:
+## Comandos uteis
 
 ```bash
 npm run dev
-```
-
-Ele usa Node local e Docker para o Postgres, como antes. Para novos ambientes, prefira `docker-compose.dev.yml`.
-
-## Producao com Docker
-
-Na maquina da empresa:
-
-1. Instale Docker e Git.
-2. Clone o repositorio.
-3. Crie `.env.prod`.
-4. Troque todas as senhas e URLs de producao.
-5. Suba os containers.
-
-```bash
-git clone <repo>
-cd estoque-erp
-cp .env.prod.example .env.prod
-docker compose -f docker-compose.prod.yml up --build -d
-```
-
-No Windows PowerShell:
-
-```powershell
-git clone <repo>
-cd estoque-erp
-Copy-Item .env.prod.example .env.prod
-docker compose -f docker-compose.prod.yml up --build -d
-```
-
-Enderecos em producao:
-
-- Aplicacao/Nginx: `http://localhost:8080`
-- Backend: interno na rede Docker, porta `3000`
-- Postgres: interno na rede Docker, database `prod_db`
-
-O `docker-compose.prod.yml` nao monta volume de codigo. Apenas o Postgres usa volume persistente:
-
-- `estoque_prod_postgres_data`
-
-## Banco limpo em producao
-
-Na primeira execucao em uma maquina nova, o volume `estoque_prod_postgres_data` nao existe; o Postgres cria o banco `prod_db` vazio. O backend aplica as migrations automaticamente com:
-
-```bash
-npm run prisma:migrate:deploy
-```
-
-Esse comando ja esta no `command` do container backend de producao.
-Em producao, o compose define `PRISMA_MIGRATIONS_PATH=prisma-prod/migrations`, usando uma baseline limpa do schema atual. As migrations legadas em `backend/prisma/migrations` foram mantidas para nao quebrar bancos de desenvolvimento existentes.
-
-Para recriar o banco de producao do zero, com perda total dos dados:
-
-```bash
-docker compose -f docker-compose.prod.yml down -v
-docker compose -f docker-compose.prod.yml up --build -d
-```
-
-Use isso apenas antes de operar com dados reais ou quando houver backup validado.
-
-Para rodar migrations manualmente:
-
-```bash
-docker compose -f docker-compose.prod.yml exec backend npm run prisma:migrate:deploy
-```
-
-## Usuario inicial
-
-Se o banco estiver vazio e nao houver usuario `ADMIN`, o backend cria um admin inicial com:
-
-- `DEFAULT_ADMIN_NAME`
-- `DEFAULT_ADMIN_EMAIL`
-- `DEFAULT_ADMIN_PASSWORD`
-
-Em producao, altere a senha no `.env.prod` antes da primeira subida e troque a senha no primeiro login.
-
-## Cloudflare Tunnel
-
-O frontend de producao fica em `http://localhost:8080`. O Cloudflare Tunnel deve apontar para essa porta.
-
-Opcao recomendada pela Cloudflare: crie um tunnel no dashboard Zero Trust, publique o hostname apontando para `http://localhost:8080` e instale o conector na maquina da empresa com o token gerado.
-
-Exemplo com Docker:
-
-```bash
-docker run cloudflare/cloudflared:latest tunnel --no-autoupdate run --token <TUNNEL_TOKEN>
-```
-
-Exemplo rapido para teste, sem hostname fixo:
-
-```bash
-cloudflared tunnel --url http://localhost:8080
-```
-
-Exemplo de tunnel localmente gerenciado:
-
-```bash
-cloudflared tunnel login
-cloudflared tunnel create estoque-erp
-cloudflared tunnel route dns estoque-erp estoque.suaempresa.com.br
-```
-
-Crie o arquivo de configuracao do `cloudflared` com ingresso para a aplicacao:
-
-```yaml
-tunnel: <TUNNEL_ID>
-credentials-file: /caminho/para/<TUNNEL_ID>.json
-
-ingress:
-  - hostname: estoque.suaempresa.com.br
-    service: http://localhost:8080
-  - service: http_status:404
-```
-
-Depois rode:
-
-```bash
-cloudflared tunnel run estoque-erp
-```
-
-Depois ajuste `.env.prod`:
-
-```env
-APP_BASE_URL=https://estoque.suaempresa.com.br
-CORS_ALLOWED_ORIGINS=https://estoque.suaempresa.com.br
-```
-
-Recrie os containers apos mudar `.env.prod`:
-
-```bash
-docker compose -f docker-compose.prod.yml up --build -d
-```
-
-## Parar, reiniciar e logs
-
-Desenvolvimento:
-
-```bash
-docker compose -f docker-compose.dev.yml down
-docker compose -f docker-compose.dev.yml up --build
-```
-
-Producao:
-
-```bash
-docker compose -f docker-compose.prod.yml down
-docker compose -f docker-compose.prod.yml up --build -d
-docker compose -f docker-compose.prod.yml logs -f
-```
-
-Atalhos npm:
-
-```bash
-npm run dev:docker
-npm run dev:docker:down
+npm run dev:up
+npm run dev:down
+npm run dev:logs
+npm run dev:reset
+npm run prisma:push
+npm run prisma:migrate:dev
 npm run prod:up
 npm run prod:down
-npm run prod:logs
 ```
 
-## Atualizar producao
+Resumo:
 
-Na maquina da empresa:
+- `npm run dev`: sobe o ambiente local em foreground
+- `npm run dev:up`: sobe em background
+- `npm run dev:reset`: derruba containers e remove volumes do ambiente local
+- `npm run prisma:push`: use apenas em ajuste local pontual, nao como fluxo padrao do projeto
+- `npm run prisma:migrate:dev`: cria/aplica migration nova de forma intencional
+
+## Compose
+
+Arquivos:
+
+- `docker-compose.yml`: ambiente local oficial
+- `docker-compose.dev.yml`: alias de compatibilidade para o mesmo ambiente local
+- `docker-compose.prod.yml`: ambiente de producao
+
+Ordem garantida:
+
+1. Postgres sobe e passa no healthcheck
+2. Backend espera o banco, sincroniza Prisma e fica healthy
+3. Frontend sobe depois do backend
+
+## Producao
+
+Exemplo basico:
 
 ```bash
-git pull
-docker compose -f docker-compose.prod.yml up --build -d
+cp .env.prod.example .env.prod
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 ```
 
-As migrations pendentes serao aplicadas pelo backend ao subir.
-
-## GitHub
-
-Antes de commitar, confira:
-
-```bash
-git status
-```
-
-Arquivos `.env`, logs, `node_modules`, builds e volumes nao devem entrar no Git.
-
-Comandos iniciais:
-
-```bash
-git init
-git add .
-git commit -m "Production-ready setup with env separation"
-git remote add origin <repo>
-git push -u origin main
-```
+O backend usa `PRISMA_BOOTSTRAP_MODE=migrate`, com `prisma migrate deploy`.
 
 ## Troubleshooting
 
-Docker nao esta rodando:
+Docker nao inicia:
 
 ```bash
 docker info
 ```
 
-Se falhar, abra o Docker Desktop ou inicie o daemon na maquina.
+Se falhar, inicie o Docker Desktop antes de subir o projeto.
 
 Porta ocupada:
 
-- dev usa `5173`, `3000`, `5432`
-- prod usa `8080`
+- local: `5432`, `3000`, `5173`
+- producao: `8080`
 
-Pare o processo que usa a porta ou altere o compose.
+Pare o processo que esta usando a porta antes de subir os containers.
 
-Banco errado ou dados antigos:
-
-```bash
-docker compose -f docker-compose.dev.yml down -v
-docker compose -f docker-compose.prod.yml down -v
-```
-
-Use o comando certo para o ambiente certo. Dev usa `dev_db`; producao usa `prod_db`.
-
-Erro de login no primeiro acesso:
-
-- confirme `DEFAULT_ADMIN_EMAIL` e `DEFAULT_ADMIN_PASSWORD` no `.env.prod`
-- se o admin ja foi criado antes, mudar o `.env.prod` nao altera a senha existente
-- para ambiente ainda sem dados reais, recrie o volume com `down -v`
-
-Erro de API no frontend:
-
-- em producao, acesse pelo Nginx em `http://localhost:8080`
-- confira se `/api/health` responde
-- confira logs com `docker compose -f docker-compose.prod.yml logs -f backend`
-
-Erro de migrations:
+Erro do Prisma com `type already exists`:
 
 ```bash
-docker compose -f docker-compose.prod.yml logs -f backend
-docker compose -f docker-compose.prod.yml exec backend npm run prisma:migrate:deploy
+npm run dev:reset
+docker compose up -d --build
 ```
+
+Se o erro aparecer em ambiente herdado com schema antigo, confirme se o backend esta rodando com a migration baseline nova e sem referencias ao fluxo antigo `prisma-prod`.
+
+Banco inconsistente ou volume antigo:
+
+```bash
+npm run dev:reset
+```
+
+Depois suba novamente:
+
+```bash
+docker compose up -d --build
+```
+
+Backend subiu antes do banco:
+
+- o compose agora usa `depends_on` com `service_healthy`
+- alem disso, o backend executa `wait-for-db` antes do Prisma
+
+Frontend sem acesso a API:
+
+- confira `http://localhost:3000/health`
+- confira logs com `npm run dev:logs`
+- valide `APP_BASE_URL`, `CORS_ALLOWED_ORIGINS` e `VITE_BACKEND_TARGET`
+
+## Fluxo para evoluir schema
+
+Quando mudar `backend/prisma/schema.prisma`:
+
+1. rode `npm run prisma:migrate:dev`
+2. revise a migration gerada em `backend/prisma/migrations`
+3. suba o ambiente normalmente com `docker compose up -d --build`
+
+Esse e o fluxo que preserva historico versionado sem reintroduzir `migrate deploy` no ambiente local.

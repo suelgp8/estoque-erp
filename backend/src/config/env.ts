@@ -49,7 +49,7 @@ const envSchema = z.object({
   DEFAULT_COMPANY_NAME: z.string().default("Empresa Padrao"),
   DEFAULT_BASE_NAME: z.string().default("Base Principal"),
   DEFAULT_TIMEZONE: z.string().default("America/Sao_Paulo"),
-  APP_BASE_URL: z.string().url().default("http://localhost:8080"),
+  APP_BASE_URL: z.string().url().default("http://localhost:5173"),
   CORS_ALLOWED_ORIGINS: optionalString,
   PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(60),
   PASSWORD_RECOVERY_DEBUG: optionalString,

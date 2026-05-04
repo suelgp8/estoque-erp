@@ -3,43 +3,45 @@ name: estoque-erp-prod
 services:
   postgres:
     image: postgres:16
-    container_name: estoque_postgres_prod
     restart: unless-stopped
     env_file:
       - .env.prod
     volumes:
-      - estoque_prod_postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
-    networks:
-      - estoque_prod
+      retries: 12
+      start_period: 5s
 
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
       target: runner
-    container_name: estoque_backend_prod
     restart: unless-stopped
+    working_dir: /app/backend
     env_file:
       - .env.prod
-    environment:
-      NODE_ENV: production
-      HOST: 0.0.0.0
-      DB_HOST: postgres
-      PRISMA_MIGRATIONS_PATH: prisma-prod/migrations
-      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
     depends_on:
       postgres:
         condition: service_healthy
-    command: sh -c "npm run prisma:migrate:deploy && npm run start"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      PRISMA_BOOTSTRAP_MODE: migrate
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+    command: npm run start:container:prod
     expose:
       - "3000"
-    networks:
-      - estoque_prod
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   frontend:
     build:
@@ -48,18 +50,14 @@ services:
       target: runner
       args:
         VITE_API_URL: /api
-    container_name: estoque_frontend_prod
+        VITE_ALLOWED_HOSTS: localhost,127.0.0.1
+        VITE_BACKEND_TARGET: http://backend:3000
     restart: unless-stopped
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "8080:80"
-    networks:
-      - estoque_prod
 
 volumes:
-  estoque_prod_postgres_data:
-
-networks:
-  estoque_prod:
-    name: estoque_prod_network
+  postgres_data:
