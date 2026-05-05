@@ -43,6 +43,68 @@ URLs locais:
 - Healthcheck: `http://localhost:3000/health`
 - PostgreSQL: `localhost:5432`
 
+## Nova maquina com WSL + Docker
+
+Pre-requisitos:
+
+- Docker Desktop instalado no Windows
+- WSL2 ativo
+- integracao do Docker com a distribuicao WSL habilitada
+- `git` e `curl` instalados dentro do WSL
+
+No terminal do WSL:
+
+```bash
+sudo apt update
+sudo apt install -y git curl
+mkdir -p ~/projetos
+cd ~/projetos
+git clone -b main https://github.com/suelgp8/estoque-erp.git
+cd estoque-erp
+docker compose up -d --build
+```
+
+Validacao:
+
+```bash
+docker compose ps
+curl http://localhost:3000/health
+curl -I http://localhost:5173
+```
+
+O esperado:
+
+- `postgres` com `healthy`
+- `backend` com `healthy`
+- `frontend` com `up`
+- `curl http://localhost:3000/health` retornando `{"status":"ok"}`
+
+Parar o ambiente:
+
+```bash
+docker compose down
+```
+
+Resetar tudo:
+
+```bash
+docker compose down -v --remove-orphans
+docker compose up -d --build
+```
+
+Ou:
+
+```bash
+npm run dev:reset
+docker compose up -d --build
+```
+
+Observacoes:
+
+- para dev em maquina nova, nao precisa criar `.env`
+- se quiser customizar, copie `cp .env.example .env`
+- no WSL, prefira clonar em `~/projetos/...` e evite `/mnt/c/...`
+
 ## Arquivos de ambiente
 
 Fonte principal:
