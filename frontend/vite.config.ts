@@ -23,7 +23,15 @@ export default defineConfig(({ mode }) => {
   };
 
   return {
-    plugins: [vue()],
+    plugins: [
+      vue({
+        template: {
+          compilerOptions: {
+            isCustomElement: (tag) => tag === "ion-icon"
+          }
+        }
+      })
+    ],
     server: {
       host: true,
       port: 5173,

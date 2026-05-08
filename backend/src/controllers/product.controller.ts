@@ -15,7 +15,8 @@ const exportParamsSchema = z.object({
 });
 
 const exportQuerySchema = z.object({
-  baseId: appIdSchema.optional()
+  baseId: appIdSchema.optional(),
+  categoryId: appIdSchema.optional()
 });
 
 const createProductSchema = z.object({
@@ -66,7 +67,7 @@ export class ProductController {
     const userId = this.requireAuthUserId(request);
     const query = exportQuerySchema.parse(request.query);
     const params = exportParamsSchema.parse(request.params);
-    const exported = await this.productService.exportProductsTable(userId, query.baseId, params.format);
+    const exported = await this.productService.exportProductsTable(userId, query, params.format);
 
     response.setHeader("Content-Type", exported.contentType);
     response.setHeader("Content-Disposition", `attachment; filename="${exported.fileName}"`);

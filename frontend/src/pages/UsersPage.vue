@@ -557,6 +557,7 @@ onMounted(async () => {
         </div>
 
         <button type="button" class="erp-button-muted" :disabled="loading || basesLoading" @click="refreshUsersPageData">
+          <ion-icon name="refresh-outline"></ion-icon>
           {{ loading || basesLoading ? "Atualizando..." : "Atualizar lista" }}
         </button>
       </div>
@@ -695,6 +696,7 @@ onMounted(async () => {
                         markCreateAllowedBasesTouched();
                       "
                     >
+                      <ion-icon name="checkmark-done-outline"></ion-icon>
                       Marcar todas
                     </button>
                     <button
@@ -705,6 +707,7 @@ onMounted(async () => {
                         markCreateAllowedBasesTouched();
                       "
                     >
+                      <ion-icon name="close-outline"></ion-icon>
                       Limpar
                     </button>
                   </div>
@@ -760,6 +763,7 @@ onMounted(async () => {
             </div>
 
             <button type="submit" class="erp-button-primary h-11 w-full" :disabled="createLoading || !createFormValid">
+              <ion-icon name="person-add-outline"></ion-icon>
               {{ createLoading ? "Criando..." : "Criar usuario" }}
             </button>
           </form>
@@ -842,6 +846,7 @@ onMounted(async () => {
                         markEditAllowedBasesTouched();
                       "
                     >
+                      <ion-icon name="checkmark-done-outline"></ion-icon>
                       Marcar todas
                     </button>
                     <button
@@ -852,6 +857,7 @@ onMounted(async () => {
                         markEditAllowedBasesTouched();
                       "
                     >
+                      <ion-icon name="close-outline"></ion-icon>
                       Limpar
                     </button>
                   </div>
@@ -908,9 +914,13 @@ onMounted(async () => {
 
             <div class="flex flex-wrap gap-2">
               <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
+                <ion-icon name="save-outline"></ion-icon>
                 {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
               </button>
-              <button type="button" class="erp-button-muted" @click="cancelEdit">Cancelar</button>
+              <button type="button" class="erp-button-muted" @click="cancelEdit">
+                <ion-icon name="close-circle-outline"></ion-icon>
+                Cancelar
+              </button>
             </div>
           </form>
         </article>
@@ -982,13 +992,17 @@ onMounted(async () => {
                 <td data-label="Criado em">{{ formatDateTime(user.createdAt) }}</td>
                 <td data-label="Acoes">
                   <div class="flex flex-wrap gap-2">
-                    <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(user)">Editar</button>
+                    <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(user)">
+                      <ion-icon name="create-outline"></ion-icon>
+                      Editar
+                    </button>
                     <button
                       type="button"
                       class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
                       :disabled="deleteLoadingId === user.id || user.id === auth.state.user?.id"
                       @click="handleDeleteUser(user)"
                     >
+                      <ion-icon name="trash-outline"></ion-icon>
                       {{ deleteLoadingId === user.id ? "Excluindo..." : "Excluir" }}
                     </button>
                   </div>

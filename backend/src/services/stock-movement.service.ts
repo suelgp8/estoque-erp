@@ -1060,7 +1060,6 @@ export class StockMovementService {
         { header: "Origem", key: "sourceBase", width: 20 },
         { header: "Destino", key: "destinationBase", width: 20 },
         { header: "Produto", key: "productName", width: 24 },
-        { header: "SKU", key: "sku", width: 16 },
         { header: "Quantidade", key: "quantity", width: 12 },
         { header: "Criado por", key: "createdBy", width: 22 },
         { header: "Criado em", key: "createdAt", width: 24 },

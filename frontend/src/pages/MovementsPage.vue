@@ -718,6 +718,7 @@ watch(
           :disabled="referencesLoading || movementsLoading"
           @click="refreshData"
         >
+          <ion-icon name="refresh-outline"></ion-icon>
           {{ referencesLoading || movementsLoading ? "Atualizando..." : "Atualizar dados" }}
         </button>
       </div>
@@ -794,7 +795,10 @@ watch(
                 <p class="text-sm font-semibold text-slate-700">Itens</p>
                 <p class="mt-1 text-xs text-slate-500">{{ stockPreviewContextLabel }}</p>
               </div>
-              <button type="button" class="erp-button-muted text-xs" @click="addItem">Adicionar item</button>
+              <button type="button" class="erp-button-muted text-xs" @click="addItem">
+                <ion-icon name="add-outline"></ion-icon>
+                Adicionar item
+              </button>
             </div>
 
             <p v-if="stockPreviewLoading" class="text-xs text-sky-700">Consultando saldo atual por base...</p>
@@ -871,6 +875,7 @@ watch(
                 :disabled="movementItems.length === 1"
                 @click="removeItem(index)"
               >
+                <ion-icon name="remove-circle-outline"></ion-icon>
                 Remover
               </button>
 
@@ -927,6 +932,7 @@ watch(
           </p>
 
           <button type="submit" class="erp-button-primary h-11 w-full" :disabled="createLoading">
+            <ion-icon name="git-compare-outline"></ion-icon>
             {{ createLoading ? "Salvando..." : "Criar movimentacao" }}
           </button>
         </form>
@@ -1022,6 +1028,7 @@ watch(
               <td data-label="Criado em">{{ formatDateTime(movement.createdAt) }}</td>
               <td data-label="Acoes">
                 <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="openMovementDetails(movement.id)">
+                  <ion-icon name="open-outline"></ion-icon>
                   Abrir detalhes
                 </button>
               </td>

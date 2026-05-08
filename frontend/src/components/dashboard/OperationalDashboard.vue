@@ -8,7 +8,6 @@ import type {
   MovementReportResponse,
   ProductEntity,
   StockMovementStatus,
-  StockReportResponse,
   TransferReportResponse
 } from "../../types/api";
 import {
@@ -36,7 +35,15 @@ type TodoItem = {
   tone: string;
 };
 type StockStatus = "zero" | "low" | "good";
-type StockRowDetailed = StockReportResponse["rows"][number] & {
+type DashboardStockRow = {
+  productId: string;
+  productName: string;
+  sku: string;
+  category: string;
+  baseId: string;
+  base: string;
+  quantity: number;
+  updatedAt: string;
   minimumStock: number;
   status: StockStatus;
   statusLabel: string;
@@ -66,7 +73,6 @@ const selectedPeriod = ref<PeriodPreset>("7d");
 const knownBases = ref<BaseEntity[]>([]);
 const knownProducts = ref<ProductEntity[]>([]);
 
-const stockReport = ref<StockReportResponse | null>(null);
 const movementsReport = ref<MovementReportResponse | null>(null);
 const transfersReport = ref<TransferReportResponse | null>(null);
 
@@ -194,13 +200,11 @@ async function loadDashboard() {
   const periodRange = getPeriodRange(selectedPeriod.value);
 
   try {
-    const [stock, movements, transfers] = await Promise.all([
-      api.getStockReport(auth.state.token, { baseId }),
+    const [movements, transfers] = await Promise.all([
       api.getMovementsReport(auth.state.token, { baseId, ...periodRange }),
       api.getTransfersReport(auth.state.token, { baseId, ...periodRange })
     ]);
 
-    stockReport.value = stock;
     movementsReport.value = movements;
     transfersReport.value = transfers;
   } catch (error) {
@@ -234,29 +238,46 @@ const selectedBaseLabel = computed(
 const selectedPeriodLabel = computed(
   () => periodOptions.find((option) => option.value === selectedPeriod.value)?.label ?? "Ultimos 7 dias"
 );
-const productIndex = computed(() => new Map(knownProducts.value.map((product) => [product.id, product])));
 const movementRows = computed(() => movementsReport.value?.rows ?? []);
 const transferRows = computed(() => transfersReport.value?.rows ?? []);
+const visibleProductsByBase = computed(() =>
+  knownProducts.value.filter((product) =>
+    !selectedBaseId.value || product.allowedBases.some((base) => base.id === selectedBaseId.value)
+  )
+);
 
-const stockRowsDetailed = computed<StockRowDetailed[]>(() =>
-  (stockReport.value?.rows ?? []).map((row) => {
-    const product = productIndex.value.get(row.productId);
-    const minimumStock = product?.minimumStock ?? 0;
-    const status: StockStatus = row.quantity <= 0 ? "zero" : minimumStock > 0 && row.quantity <= minimumStock ? "low" : "good";
+const stockRowsDetailed = computed<DashboardStockRow[]>(() =>
+  visibleProductsByBase.value.flatMap((product) => {
+    const basesToRender = product.allowedBases.filter((base) =>
+      !selectedBaseId.value || base.id === selectedBaseId.value
+    );
 
-    return {
-      ...row,
-      minimumStock,
-      status,
-      statusLabel: status === "zero" ? "Estoque zerado" : status === "low" ? "Estoque baixo" : "Estoque bom",
-      gap: Math.max(0, minimumStock - row.quantity)
-    };
+    return basesToRender.map((base) => {
+      const quantity = product.stockByBase.find((stock) => stock.baseId === base.id)?.quantity ?? 0;
+      const status: StockStatus =
+        quantity <= 0 ? "zero" : product.minimumStock > 0 && quantity <= product.minimumStock ? "low" : "good";
+
+      return {
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        category: product.category?.name ?? "Sem categoria",
+        baseId: base.id,
+        base: base.name,
+        quantity,
+        updatedAt: product.updatedAt,
+        minimumStock: product.minimumStock,
+        status,
+        statusLabel: status === "zero" ? "Estoque zerado" : status === "low" ? "Estoque baixo" : "Estoque bom",
+        gap: Math.max(0, product.minimumStock - quantity)
+      };
+    });
   })
 );
 
 const totalStockQuantity = computed(() => stockRowsDetailed.value.reduce((total, row) => total + row.quantity, 0));
 const totalStockRows = computed(() => stockRowsDetailed.value.length);
-const monitoredProductsCount = computed(() => new Set(stockRowsDetailed.value.map((row) => row.productId)).size);
+const monitoredProductsCount = computed(() => visibleProductsByBase.value.length);
 const zeroStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.status === "zero").length);
 const lowStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.status === "low").length);
 const criticalAlertCount = computed(() => zeroStockCount.value + lowStockCount.value);

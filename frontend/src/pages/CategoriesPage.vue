@@ -408,6 +408,7 @@ watch(selectedListBaseId, () => {
         </div>
 
         <button type="button" class="erp-button-muted" :disabled="loading || basesLoading" @click="loadCategoriesAndBases">
+          <ion-icon name="refresh-outline"></ion-icon>
           {{ loading || basesLoading ? "Atualizando..." : "Atualizar lista" }}
         </button>
       </div>
@@ -474,6 +475,7 @@ watch(selectedListBaseId, () => {
                       createTouched.allowedBases = true;
                     "
                   >
+                    <ion-icon name="checkmark-done-outline"></ion-icon>
                     Marcar todas
                   </button>
                   <button
@@ -484,6 +486,7 @@ watch(selectedListBaseId, () => {
                       createTouched.allowedBases = true;
                     "
                   >
+                    <ion-icon name="close-outline"></ion-icon>
                     Limpar
                   </button>
                 </div>
@@ -515,6 +518,7 @@ watch(selectedListBaseId, () => {
           </div>
 
           <button type="submit" class="erp-button-primary h-11 w-full" :disabled="createLoading || !createFormValid">
+            <ion-icon name="add-circle-outline"></ion-icon>
             {{ createLoading ? "Criando..." : "Criar categoria" }}
           </button>
         </form>
@@ -581,6 +585,7 @@ watch(selectedListBaseId, () => {
                       editTouched.allowedBases = true;
                     "
                   >
+                    <ion-icon name="checkmark-done-outline"></ion-icon>
                     Marcar todas
                   </button>
                   <button
@@ -591,6 +596,7 @@ watch(selectedListBaseId, () => {
                       editTouched.allowedBases = true;
                     "
                   >
+                    <ion-icon name="close-outline"></ion-icon>
                     Limpar
                   </button>
                 </div>
@@ -623,9 +629,13 @@ watch(selectedListBaseId, () => {
 
           <div class="flex flex-wrap gap-2">
             <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
+              <ion-icon name="save-outline"></ion-icon>
               {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
             </button>
-            <button type="button" class="erp-button-muted" @click="cancelEdit">Cancelar</button>
+            <button type="button" class="erp-button-muted" @click="cancelEdit">
+              <ion-icon name="close-circle-outline"></ion-icon>
+              Cancelar
+            </button>
           </div>
         </form>
       </article>
@@ -687,13 +697,17 @@ watch(selectedListBaseId, () => {
               <td data-label="Atualizado em">{{ formatDateTime(category.updatedAt) }}</td>
               <td data-label="Acoes">
                 <div v-if="canManageCategoryItem(category)" class="flex flex-wrap gap-2">
-                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(category)">Editar</button>
+                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(category)">
+                    <ion-icon name="create-outline"></ion-icon>
+                    Editar
+                  </button>
                   <button
                     type="button"
                     class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
                     :disabled="deleteLoadingId === category.id"
                     @click="handleDeleteCategory(category)"
                   >
+                    <ion-icon name="trash-outline"></ion-icon>
                     {{ deleteLoadingId === category.id ? "Excluindo..." : "Excluir" }}
                   </button>
                 </div>

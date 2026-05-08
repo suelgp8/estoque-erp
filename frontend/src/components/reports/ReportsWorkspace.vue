@@ -515,9 +515,11 @@ onMounted(async () => {
 
         <div class="flex flex-wrap items-center gap-2">
           <button type="button" class="erp-button-muted" :disabled="loading || referencesLoading" @click="refreshPanel">
+            <ion-icon name="refresh-outline"></ion-icon>
             {{ loading || referencesLoading ? "Atualizando..." : "Atualizar" }}
           </button>
           <button type="button" class="erp-button-muted" :disabled="loading || referencesLoading" @click="clearAndReload">
+            <ion-icon name="close-outline"></ion-icon>
             Limpar filtros
           </button>
           <button
@@ -527,6 +529,7 @@ onMounted(async () => {
             :disabled="exporting !== null"
             @click="exportCurrentReport('excel')"
           >
+            <ion-icon name="download-outline"></ion-icon>
             {{ exporting === "excel" ? "Exportando..." : "Exportar Excel" }}
           </button>
           <button
@@ -536,6 +539,7 @@ onMounted(async () => {
             :disabled="exporting !== null"
             @click="exportCurrentReport('pdf')"
           >
+            <ion-icon name="document-text-outline"></ion-icon>
             {{ exporting === "pdf" ? "Exportando..." : "Exportar PDF" }}
           </button>
         </div>
@@ -701,6 +705,7 @@ onMounted(async () => {
 
       <div class="mt-5 flex flex-wrap gap-2">
         <button type="button" class="erp-button-primary" :disabled="loading" @click="loadActiveReport">
+          <ion-icon name="search-outline"></ion-icon>
           {{ loading ? "Filtrando..." : "Aplicar filtros" }}
         </button>
       </div>

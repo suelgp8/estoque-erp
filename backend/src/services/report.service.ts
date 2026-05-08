@@ -119,11 +119,9 @@ export class ReportService {
       },
       columns: [
         { header: "Produto", key: "productName", width: 24 },
-        { header: "SKU", key: "sku", width: 16 },
         { header: "Categoria", key: "category", width: 20 },
         { header: "Base", key: "base", width: 20 },
-        { header: "Quantidade", key: "quantity", width: 12 },
-        { header: "Atualizado Em", key: "updatedAt", width: 28 }
+        { header: "Quantidade", key: "quantity", width: 12 }
       ],
       rows: report.rows
     };

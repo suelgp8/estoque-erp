@@ -5,9 +5,9 @@ import { useNotifier } from "../composables/useNotifier";
 const notifier = useNotifier();
 
 const notificationStyles = computed(() => ({
-  success: "border-emerald-300/40 bg-emerald-500/15 text-emerald-100",
-  error: "border-rose-300/40 bg-rose-500/15 text-rose-100",
-  info: "border-cyan-300/40 bg-cyan-500/15 text-cyan-100"
+  success: "notification-success",
+  error: "notification-error",
+  info: "notification-info"
 }));
 </script>
 
@@ -17,17 +17,36 @@ const notificationStyles = computed(() => ({
       <article
         v-for="notification in notifier.notifications"
         :key="notification.id"
-        class="rounded-xl border px-4 py-3 shadow-2xl backdrop-blur"
+        class="notification-card rounded-xl border px-4 py-3 shadow-2xl ring-1 ring-black/5 backdrop-blur-xl"
         :class="notificationStyles[notification.type]"
       >
         <h4 class="text-sm font-semibold tracking-wide">{{ notification.title }}</h4>
-        <p v-if="notification.message" class="mt-1 text-xs/5 opacity-90">{{ notification.message }}</p>
+        <p v-if="notification.message" class="mt-1 text-xs/5 text-white/95">{{ notification.message }}</p>
       </article>
     </TransitionGroup>
   </div>
 </template>
 
 <style scoped>
+.notification-card {
+  color: #ffffff;
+}
+
+.notification-success {
+  border-color: rgba(167, 243, 208, 0.95);
+  background: rgba(16, 185, 129, 0.96);
+}
+
+.notification-error {
+  border-color: rgba(254, 205, 211, 0.95);
+  background: rgba(244, 63, 94, 0.96);
+}
+
+.notification-info {
+  border-color: rgba(165, 243, 252, 0.95);
+  background: rgba(6, 182, 212, 0.96);
+}
+
 .toast-enter-active,
 .toast-leave-active {
   transition: all 0.28s ease;

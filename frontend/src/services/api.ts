@@ -478,7 +478,7 @@ export const api = {
     return requestFile(`/reports/stock/export/${format}`, token, filters);
   },
 
-  exportProductsTable(token: string, format: ReportFormat, filters: { baseId?: string }) {
+  exportProductsTable(token: string, format: ReportFormat, filters: { baseId?: string; categoryId?: string }) {
     return requestFile(`/products/export/${format}`, token, filters);
   },
 

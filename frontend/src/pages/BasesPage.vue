@@ -215,6 +215,7 @@ onMounted(async () => {
         </div>
 
         <button type="button" class="erp-button-muted" :disabled="loading" @click="loadBases">
+          <ion-icon name="refresh-outline"></ion-icon>
           {{ loading ? "Atualizando..." : "Atualizar lista" }}
         </button>
       </div>
@@ -246,6 +247,7 @@ onMounted(async () => {
           </div>
 
           <button type="submit" class="erp-button-primary h-11 w-full" :disabled="createLoading || !createFormValid">
+            <ion-icon name="add-circle-outline"></ion-icon>
             {{ createLoading ? "Criando..." : "Criar base" }}
           </button>
         </form>
@@ -278,9 +280,13 @@ onMounted(async () => {
 
           <div class="flex flex-wrap gap-2">
             <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
+              <ion-icon name="save-outline"></ion-icon>
               {{ editLoading ? "Salvando..." : "Salvar alterações" }}
             </button>
-            <button type="button" class="erp-button-muted" @click="cancelEdit">Cancelar</button>
+            <button type="button" class="erp-button-muted" @click="cancelEdit">
+              <ion-icon name="close-circle-outline"></ion-icon>
+              Cancelar
+            </button>
           </div>
         </form>
       </article>
@@ -315,13 +321,17 @@ onMounted(async () => {
               <td data-label="Atualizado em">{{ formatDateTime(base.updatedAt) }}</td>
               <td data-label="Acoes">
                 <div v-if="canManage" class="flex flex-wrap gap-2">
-                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(base)">Editar</button>
+                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(base)">
+                    <ion-icon name="create-outline"></ion-icon>
+                    Editar
+                  </button>
                   <button
                     type="button"
                     class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
                     :disabled="deleteLoadingId === base.id"
                     @click="handleDeleteBase(base)"
                   >
+                    <ion-icon name="trash-outline"></ion-icon>
                     {{ deleteLoadingId === base.id ? "Excluindo..." : "Excluir" }}
                   </button>
                 </div>

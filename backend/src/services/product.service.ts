@@ -10,6 +10,11 @@ import {
 
 type ReportFormat = "excel" | "pdf";
 
+type ExportProductsFilters = {
+  baseId?: string;
+  categoryId?: string;
+};
+
 type CreateProductInput = {
   name: string;
   description?: string;
@@ -223,9 +228,10 @@ export class ProductService {
     await this.productRepository.deleteById(existingProduct.id);
   }
 
-  async exportProductsTable(userId: string, baseId: string | undefined, format: ReportFormat) {
+  async exportProductsTable(userId: string, filters: ExportProductsFilters, format: ReportFormat) {
     const user = await this.requireUserWithBaseAccess(userId);
     const products = await this.listProducts(userId);
+    const { baseId, categoryId } = filters;
 
     if (baseId && user.role !== Role.ADMIN) {
       const hasBaseAccess = user.baseAccesses.some((access) => access.baseId === baseId);
@@ -238,21 +244,10 @@ export class ProductService {
     const filteredProducts = baseId
       ? products.filter((product) => product.allowedBases.some((base) => base.id === baseId))
       : products;
-
-    const rows = filteredProducts.map((product) => {
-      const stockQuantity = this.resolveDisplayedStockQuantity(product, baseId);
-
-      return {
-        productName: product.name,
-        sku: product.sku,
-        category: product.category?.name ?? "Sem categoria",
-        bases: this.resolveProductBaseSummary(product, baseId),
-        stockQuantity,
-        minimumStock: product.minimumStock,
-        stockStatus: this.resolveStockHealthLabel(stockQuantity, product.minimumStock),
-        updatedAt: product.updatedAt,
-      };
-    });
+    const filteredByCategoryProducts = categoryId
+      ? filteredProducts.filter((product) => product.categoryId === categoryId)
+      : filteredProducts;
+    const rows = this.buildGroupedProductReportRows(filteredByCategoryProducts, baseId);
 
     const report: TabularReport = {
       title: baseId ? "Produtos por Base" : "Produtos e Estoque",
@@ -260,17 +255,18 @@ export class ProductService {
       pdfHeader: {
         companyName: user.company.name,
         companyLogoDataUrl: user.company.logoDataUrl ?? null,
-        contextLines: [`Base: ${await this.resolveBaseLabel(user.companyId, baseId)}`]
+        contextLines: [
+          `Base: ${await this.resolveBaseLabel(user.companyId, baseId)}`,
+          `Categoria: ${await this.resolveCategoryLabel(user.companyId, categoryId)}`
+        ]
       },
       columns: [
         { header: "Produto", key: "productName", width: 28 },
-        { header: "SKU", key: "sku", width: 16 },
         { header: "Categoria", key: "category", width: 22 },
         { header: "Bases", key: "bases", width: 22 },
         { header: "Estoque Atual", key: "stockQuantity", width: 14 },
         { header: "Estoque Minimo", key: "minimumStock", width: 16 },
-        { header: "Status", key: "stockStatus", width: 16 },
-        { header: "Atualizado Em", key: "updatedAt", width: 24 },
+        { header: "Status", key: "stockStatus", width: 16 }
       ],
       rows,
     };
@@ -331,6 +327,15 @@ export class ProductService {
 
     const base = await this.productRepository.findBaseByIdAndCompany(baseId, companyId);
     return base?.name ?? baseId;
+  }
+
+  private async resolveCategoryLabel(companyId: string, categoryId?: string): Promise<string> {
+    if (!categoryId) {
+      return "Todas as categorias";
+    }
+
+    const category = await this.productRepository.findCategoryByIdAndCompany(categoryId, companyId);
+    return category?.name ?? categoryId;
   }
 
   private async requireUserWithBaseAccess(userId: string): Promise<UserWithBaseAccess> {
@@ -430,6 +435,56 @@ export class ProductService {
     }
 
     return "Estoque bom";
+  }
+
+  private buildGroupedProductReportRows(products: ProductPayload[], baseId?: string): Array<Record<string, string | number>> {
+    const groupedProducts = new Map<string, ProductPayload[]>();
+
+    for (const product of [...products].sort((left, right) => {
+      const leftCategory = left.category?.name ?? "Sem categoria";
+      const rightCategory = right.category?.name ?? "Sem categoria";
+
+      return leftCategory.localeCompare(rightCategory, "pt-BR") || left.name.localeCompare(right.name, "pt-BR");
+    })) {
+      const categoryName = product.category?.name ?? "Sem categoria";
+      const categoryProducts = groupedProducts.get(categoryName) ?? [];
+      categoryProducts.push(product);
+      groupedProducts.set(categoryName, categoryProducts);
+    }
+
+    const rows: Array<Record<string, string | number>> = [];
+
+    for (const [categoryName, categoryProducts] of groupedProducts.entries()) {
+      rows.push({
+        __rowType: "section",
+        __sectionTitle: categoryName,
+        productName: "",
+        sku: "",
+        category: "",
+        bases: "",
+        stockQuantity: "",
+        minimumStock: "",
+        stockStatus: "",
+        updatedAt: ""
+      });
+
+      for (const product of categoryProducts) {
+        const stockQuantity = this.resolveDisplayedStockQuantity(product, baseId);
+
+        rows.push({
+          productName: product.name,
+          sku: product.sku,
+          category: "",
+          bases: this.resolveProductBaseSummary(product, baseId),
+          stockQuantity,
+          minimumStock: product.minimumStock,
+          stockStatus: this.resolveStockHealthLabel(stockQuantity, product.minimumStock),
+          updatedAt: product.updatedAt
+        });
+      }
+    }
+
+    return rows;
   }
 
   private async exportReportByFormat(report: TabularReport, baseFileName: string, format: ReportFormat) {

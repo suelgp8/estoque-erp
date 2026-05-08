@@ -18,6 +18,7 @@ const editLoading = ref(false);
 const deleteLoadingId = ref<string | null>(null);
 const exporting = ref<ReportFormat | null>(null);
 const selectedListBaseId = ref("");
+const selectedListCategoryId = ref("");
 
 const createForm = reactive({
   name: "",
@@ -65,16 +66,23 @@ const visibleProducts = computed(() => {
   );
 });
 const filteredProducts = computed(() => {
-  if (!selectedListBaseId.value) {
-    return visibleProducts.value;
+  const productsByBase = !selectedListBaseId.value
+    ? visibleProducts.value
+    : visibleProducts.value.filter((product) =>
+        product.allowedBases.some((base) => base.id === selectedListBaseId.value)
+      );
+
+  if (!selectedListCategoryId.value) {
+    return productsByBase;
   }
 
-  return visibleProducts.value.filter((product) =>
-    product.allowedBases.some((base) => base.id === selectedListBaseId.value)
-  );
+  return productsByBase.filter((product) => product.categoryId === selectedListCategoryId.value);
 });
 const selectedListBaseName = computed(
   () => bases.value.find((base) => base.id === selectedListBaseId.value)?.name ?? ""
+);
+const selectedListCategoryName = computed(
+  () => categories.value.find((category) => category.id === selectedListCategoryId.value)?.name ?? ""
 );
 
 function resolveDisplayedStockQuantity(product: ProductEntity): number {
@@ -302,6 +310,14 @@ function syncListBaseSelection() {
   }
 }
 
+function syncListCategorySelection() {
+  const selectedCategoryStillExists = categories.value.some((category) => category.id === selectedListCategoryId.value);
+
+  if (!selectedCategoryStillExists) {
+    selectedListCategoryId.value = "";
+  }
+}
+
 function productIsVisibleInSelectedBase(product: ProductEntity): boolean {
   if (!selectedListBaseId.value) {
     return true;
@@ -400,6 +416,7 @@ async function loadProductsCategoriesAndBases() {
     categories.value = categoriesResponse.categories;
     bases.value = basesResponse.bases;
     syncListBaseSelection();
+    syncListCategorySelection();
   } catch (error) {
     notifier.error("Falha ao carregar produtos", resolveErrorMessage(error));
   } finally {
@@ -521,7 +538,8 @@ async function exportProductsStock(format: ReportFormat) {
 
   try {
     const exported = await api.exportProductsTable(auth.state.token, format, {
-      baseId: selectedListBaseId.value || undefined
+      baseId: selectedListBaseId.value || undefined,
+      categoryId: selectedListCategoryId.value || undefined
     });
     downloadExport(exported.blob, exported.fileName);
     notifier.success("Exportacao concluida", `Arquivo ${exported.fileName} pronto para uso.`);
@@ -551,6 +569,18 @@ watch(selectedListBaseId, () => {
     cancelEdit();
   }
 });
+
+watch(selectedListCategoryId, () => {
+  if (!editForm.id) {
+    return;
+  }
+
+  const currentProduct = products.value.find((product) => product.id === editForm.id);
+
+  if (!currentProduct || (selectedListCategoryId.value && currentProduct.categoryId !== selectedListCategoryId.value)) {
+    cancelEdit();
+  }
+});
 </script>
 
 <template>
@@ -566,6 +596,7 @@ watch(selectedListBaseId, () => {
         </div>
 
         <button type="button" class="erp-button-muted" :disabled="loading" @click="loadProductsCategoriesAndBases">
+          <ion-icon name="refresh-outline"></ion-icon>
           {{ loading ? "Atualizando..." : "Atualizar lista" }}
         </button>
       </div>
@@ -622,6 +653,7 @@ watch(selectedListBaseId, () => {
                       createTouched.allowedBases = true;
                     "
                   >
+                    <ion-icon name="checkmark-done-outline"></ion-icon>
                     Marcar todas
                   </button>
                   <button
@@ -632,6 +664,7 @@ watch(selectedListBaseId, () => {
                       createTouched.allowedBases = true;
                     "
                   >
+                    <ion-icon name="close-outline"></ion-icon>
                     Limpar
                   </button>
                 </div>
@@ -709,6 +742,7 @@ watch(selectedListBaseId, () => {
           </div>
 
           <button type="submit" class="erp-button-primary h-11 w-full" :disabled="createLoading || !createFormValid">
+            <ion-icon name="add-circle-outline"></ion-icon>
             {{ createLoading ? "Criando..." : "Criar produto" }}
           </button>
         </form>
@@ -773,6 +807,7 @@ watch(selectedListBaseId, () => {
                       editTouched.allowedBases = true;
                     "
                   >
+                    <ion-icon name="checkmark-done-outline"></ion-icon>
                     Marcar todas
                   </button>
                   <button
@@ -783,6 +818,7 @@ watch(selectedListBaseId, () => {
                       editTouched.allowedBases = true;
                     "
                   >
+                    <ion-icon name="close-outline"></ion-icon>
                     Limpar
                   </button>
                 </div>
@@ -861,9 +897,13 @@ watch(selectedListBaseId, () => {
 
           <div class="flex flex-wrap gap-2">
             <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
+              <ion-icon name="save-outline"></ion-icon>
               {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
             </button>
-            <button type="button" class="erp-button-muted" @click="cancelEdit">Cancelar</button>
+            <button type="button" class="erp-button-muted" @click="cancelEdit">
+              <ion-icon name="close-circle-outline"></ion-icon>
+              Cancelar
+            </button>
           </div>
         </form>
       </article>
@@ -876,22 +916,37 @@ watch(selectedListBaseId, () => {
           <p class="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">{{ filteredProducts.length }} registros</p>
         </div>
 
-        <div class="w-full lg:max-w-xs">
-          <label class="erp-label">Base visualizada</label>
-          <select v-model="selectedListBaseId" class="erp-select" :disabled="loading || bases.length === 0">
-            <option v-if="isAdmin" value="">Todas as bases</option>
-            <option v-for="base in bases" :key="base.id" :value="base.id">{{ base.name }}</option>
-          </select>
-          <p class="mt-1 text-xs text-slate-500">
-            {{ selectedListBaseName ? `Exibindo apenas registros vinculados a ${selectedListBaseName}.` : "Visao geral de todas as bases." }}
-          </p>
+        <div class="grid w-full gap-4 lg:max-w-2xl lg:grid-cols-2">
+          <div>
+            <label class="erp-label">Base visualizada</label>
+            <select v-model="selectedListBaseId" class="erp-select" :disabled="loading || bases.length === 0">
+              <option v-if="isAdmin" value="">Todas as bases</option>
+              <option v-for="base in bases" :key="base.id" :value="base.id">{{ base.name }}</option>
+            </select>
+            <p class="mt-1 text-xs text-slate-500">
+              {{ selectedListBaseName ? `Exibindo apenas registros vinculados a ${selectedListBaseName}.` : "Visao geral de todas as bases." }}
+            </p>
+          </div>
+
+          <div>
+            <label class="erp-label">Categoria visualizada</label>
+            <select v-model="selectedListCategoryId" class="erp-select" :disabled="loading || categories.length === 0">
+              <option value="">Todas as categorias</option>
+              <option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option>
+            </select>
+            <p class="mt-1 text-xs text-slate-500">
+              {{ selectedListCategoryName ? `Exibindo apenas produtos da categoria ${selectedListCategoryName}.` : "Visao geral de todas as categorias." }}
+            </p>
+          </div>
         </div>
 
         <div class="flex flex-wrap gap-2 lg:justify-end">
           <button type="button" class="erp-button-muted" :disabled="exporting !== null" @click="exportProductsStock('excel')">
+            <ion-icon name="download-outline"></ion-icon>
             {{ exporting === "excel" ? "Exportando..." : "Exportar Excel" }}
           </button>
           <button type="button" class="erp-button-primary" :disabled="exporting !== null" @click="exportProductsStock('pdf')">
+            <ion-icon name="document-text-outline"></ion-icon>
             {{ exporting === "pdf" ? "Exportando..." : "Exportar PDF" }}
           </button>
         </div>
@@ -954,13 +1009,17 @@ watch(selectedListBaseId, () => {
               <td data-label="Atualizado em" class="text-sm">{{ formatDateTime(product.updatedAt) }}</td>
               <td data-label="Acoes" class="w-[180px]">
                 <div v-if="canManageProductItem(product)" class="flex flex-wrap gap-2">
-                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(product)">Editar</button>
+                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(product)">
+                    <ion-icon name="create-outline"></ion-icon>
+                    Editar
+                  </button>
                   <button
                     type="button"
                     class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
                     :disabled="deleteLoadingId === product.id"
                     @click="handleDeleteProduct(product)"
                   >
+                    <ion-icon name="trash-outline"></ion-icon>
                     {{ deleteLoadingId === product.id ? "Excluindo..." : "Excluir" }}
                   </button>
                 </div>
