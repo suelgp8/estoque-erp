@@ -56,7 +56,6 @@ const editTouched = reactive({
 const roleOptions: Role[] = ["ADMIN", "GESTOR", "TECNICO"];
 
 const canManageUsers = computed(() => auth.state.user?.role === "ADMIN");
-const isEditing = computed(() => Boolean(editForm.id));
 const isEditingOwnUser = computed(() => auth.state.user?.id === editForm.id);
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -570,7 +569,7 @@ onMounted(async () => {
     </article>
 
     <template v-else>
-      <section class="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <section class="grid gap-6 xl:grid-cols-[minmax(0,560px)]">
         <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.05s">
           <h2 class="font-heading text-2xl text-slate-900">Novo usuario</h2>
 
@@ -768,162 +767,6 @@ onMounted(async () => {
             </button>
           </form>
         </article>
-
-        <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.1s">
-          <h2 class="font-heading text-2xl text-slate-900">Editar usuario</h2>
-
-          <div v-if="!isEditing" class="mt-5 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
-            Selecione um usuario na tabela para editar.
-          </div>
-
-          <form v-else class="mt-5 space-y-4" @submit.prevent="handleEditUser">
-            <div>
-              <label class="erp-label">Nome</label>
-              <input
-                v-model="editForm.name"
-                class="erp-field"
-                :class="editTouched.name && editNameError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
-                type="text"
-                required
-                @input="editTouched.name = true"
-                @blur="editTouched.name = true"
-              />
-              <p v-if="editTouched.name && editNameError" class="mt-1 text-xs text-rose-600">{{ editNameError }}</p>
-            </div>
-
-            <div>
-              <label class="erp-label">Email</label>
-              <input
-                v-model="editForm.email"
-                class="erp-field"
-                :class="editTouched.email && editEmailError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
-                type="email"
-                required
-                @input="editTouched.email = true"
-                @blur="editTouched.email = true"
-              />
-              <p v-if="editTouched.email && editEmailError" class="mt-1 text-xs text-rose-600">{{ editEmailError }}</p>
-            </div>
-
-            <div>
-              <label class="erp-label">Perfil</label>
-              <select v-model="editForm.role" class="erp-select" :disabled="isEditingOwnUser" @change="handleEditRoleChange">
-                <option v-for="role in roleOptions" :key="role" :value="role">{{ formatRole(role) }}</option>
-              </select>
-              <p v-if="isEditingOwnUser" class="mt-2 text-xs text-amber-700">
-                Nao e permitido alterar o proprio perfil por esta tela.
-              </p>
-            </div>
-
-            <div class="space-y-3">
-              <label class="erp-label">Bases permitidas</label>
-
-              <div v-if="isAdminRole(editForm.role)" class="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-                Usuarios ADMIN recebem acesso automatico a todas as bases cadastradas.
-                <span class="mt-1 block text-xs text-sky-700">
-                  Bases disponiveis no momento: {{ companyBases.length }}
-                </span>
-              </div>
-
-              <div
-                v-else-if="companyBases.length === 0"
-                class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-              >
-                Cadastre ao menos uma base antes de usar esse perfil.
-              </div>
-
-              <div v-else-if="isGestorRole(editForm.role)" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div class="flex flex-wrap items-center justify-between gap-2">
-                  <p class="text-sm font-medium text-slate-700">
-                    Selecione as bases permitidas para o gestor.
-                  </p>
-                  <div class="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      class="erp-button-muted px-3 py-1.5 text-xs"
-                      @click="
-                        selectAllBases(editForm);
-                        markEditAllowedBasesTouched();
-                      "
-                    >
-                      <ion-icon name="checkmark-done-outline"></ion-icon>
-                      Marcar todas
-                    </button>
-                    <button
-                      type="button"
-                      class="erp-button-muted px-3 py-1.5 text-xs"
-                      @click="
-                        clearBaseSelection(editForm);
-                        markEditAllowedBasesTouched();
-                      "
-                    >
-                      <ion-icon name="close-outline"></ion-icon>
-                      Limpar
-                    </button>
-                  </div>
-                </div>
-
-                <div class="mt-3 grid gap-2">
-                  <label
-                    v-for="base in companyBases"
-                    :key="`edit-${base.id}`"
-                    class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                  >
-                    <input
-                      class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                      type="checkbox"
-                      :checked="editForm.allowedBaseIds.includes(base.id)"
-                      @change="
-                        toggleGestorBase(editForm, base.id);
-                        markEditAllowedBasesTouched();
-                      "
-                    />
-                    <span>{{ base.name }}</span>
-                  </label>
-                </div>
-              </div>
-
-              <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p class="text-sm font-medium text-slate-700">Selecione a unica base permitida para o tecnico.</p>
-
-                <div class="mt-3 grid gap-2">
-                  <label
-                    v-for="base in companyBases"
-                    :key="`edit-tech-${base.id}`"
-                    class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                  >
-                    <input
-                      class="h-4 w-4 border-slate-300 text-sky-600 focus:ring-sky-500"
-                      type="radio"
-                      name="edit-technician-base"
-                      :checked="editForm.allowedBaseIds[0] === base.id"
-                      @change="
-                        selectTecnicoBase(editForm, base.id);
-                        markEditAllowedBasesTouched();
-                      "
-                    />
-                    <span>{{ base.name }}</span>
-                  </label>
-                </div>
-              </div>
-
-              <p v-if="editTouched.allowedBases && editAllowedBasesError" class="text-xs text-rose-600">
-                {{ editAllowedBasesError }}
-              </p>
-            </div>
-
-            <div class="flex flex-wrap gap-2">
-              <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
-                <ion-icon name="save-outline"></ion-icon>
-                {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
-              </button>
-              <button type="button" class="erp-button-muted" @click="cancelEdit">
-                <ion-icon name="close-circle-outline"></ion-icon>
-                Cancelar
-              </button>
-            </div>
-          </form>
-        </article>
       </section>
 
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.14s">
@@ -952,62 +795,231 @@ onMounted(async () => {
               <tr v-else-if="users.length === 0">
                 <td colspan="7" class="text-center text-slate-500">Nenhum usuario encontrado.</td>
               </tr>
-              <tr v-for="user in users" :key="user.id">
-                <td data-label="Nome" class="font-medium text-slate-900">{{ user.name }}</td>
-                <td data-label="Email">{{ user.email }}</td>
-                <td data-label="Perfil">{{ formatRole(user.role) }}</td>
-                <td data-label="Bases">
-                  <div class="flex flex-wrap gap-1.5">
+              <template v-for="user in users" :key="user.id">
+                <tr :class="editForm.id === user.id ? 'bg-slate-50/80' : ''">
+                  <td data-label="Nome" class="font-medium text-slate-900">{{ user.name }}</td>
+                  <td data-label="Email">{{ user.email }}</td>
+                  <td data-label="Perfil">{{ formatRole(user.role) }}</td>
+                  <td data-label="Bases">
+                    <div class="flex flex-wrap gap-1.5">
+                      <span
+                        v-if="isAdminRole(user.role)"
+                        class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800"
+                      >
+                        Todas as bases
+                      </span>
+                      <template v-else>
+                        <span
+                          v-for="baseName in visibleBaseLabels(user)"
+                          :key="`${user.id}-${baseName}`"
+                          class="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+                        >
+                          {{ baseName }}
+                        </span>
+                        <span
+                          v-if="remainingBaseCount(user) > 0"
+                          class="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600"
+                        >
+                          +{{ remainingBaseCount(user) }}
+                        </span>
+                      </template>
+                    </div>
+                  </td>
+                  <td data-label="Primeiro acesso">
                     <span
-                      v-if="isAdminRole(user.role)"
-                      class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800"
+                      class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold"
+                      :class="user.isFirstLogin ? 'border-amber-200 bg-amber-100 text-amber-800' : 'border-emerald-200 bg-emerald-100 text-emerald-800'"
                     >
-                      Todas as bases
+                      {{ user.isFirstLogin ? "Pendente" : "Concluido" }}
                     </span>
-                    <template v-else>
-                      <span
-                        v-for="baseName in visibleBaseLabels(user)"
-                        :key="`${user.id}-${baseName}`"
-                        class="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+                  </td>
+                  <td data-label="Criado em">{{ formatDateTime(user.createdAt) }}</td>
+                  <td data-label="Acoes">
+                    <div class="flex flex-wrap gap-2">
+                      <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(user)">
+                        <ion-icon name="create-outline"></ion-icon>
+                        {{ editForm.id === user.id ? "Editando" : "Editar" }}
+                      </button>
+                      <button
+                        type="button"
+                        class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
+                        :disabled="deleteLoadingId === user.id || user.id === auth.state.user?.id"
+                        @click="handleDeleteUser(user)"
                       >
-                        {{ baseName }}
-                      </span>
-                      <span
-                        v-if="remainingBaseCount(user) > 0"
-                        class="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600"
-                      >
-                        +{{ remainingBaseCount(user) }}
-                      </span>
-                    </template>
-                  </div>
-                </td>
-                <td data-label="Primeiro acesso">
-                  <span
-                    class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold"
-                    :class="user.isFirstLogin ? 'border-amber-200 bg-amber-100 text-amber-800' : 'border-emerald-200 bg-emerald-100 text-emerald-800'"
-                  >
-                    {{ user.isFirstLogin ? "Pendente" : "Concluido" }}
-                  </span>
-                </td>
-                <td data-label="Criado em">{{ formatDateTime(user.createdAt) }}</td>
-                <td data-label="Acoes">
-                  <div class="flex flex-wrap gap-2">
-                    <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(user)">
-                      <ion-icon name="create-outline"></ion-icon>
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
-                      :disabled="deleteLoadingId === user.id || user.id === auth.state.user?.id"
-                      @click="handleDeleteUser(user)"
-                    >
-                      <ion-icon name="trash-outline"></ion-icon>
-                      {{ deleteLoadingId === user.id ? "Excluindo..." : "Excluir" }}
-                    </button>
-                  </div>
-                </td>
-              </tr>
+                        <ion-icon name="trash-outline"></ion-icon>
+                        {{ deleteLoadingId === user.id ? "Excluindo..." : "Excluir" }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                <tr v-if="editForm.id === user.id" class="bg-slate-50/70">
+                  <td colspan="7" class="px-4 py-4">
+                    <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p class="text-sm font-semibold text-slate-900">Editar usuario</p>
+                          <p class="text-xs text-slate-500">Ajuste o cadastro no proprio registro da lista.</p>
+                        </div>
+                        <p class="text-xs text-slate-500">Usuario selecionado: {{ user.name }}</p>
+                      </div>
+
+                      <form class="mt-4 space-y-4" @submit.prevent="handleEditUser">
+                        <div>
+                          <label class="erp-label">Nome</label>
+                          <input
+                            v-model="editForm.name"
+                            class="erp-field"
+                            :class="editTouched.name && editNameError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
+                            type="text"
+                            required
+                            @input="editTouched.name = true"
+                            @blur="editTouched.name = true"
+                          />
+                          <p v-if="editTouched.name && editNameError" class="mt-1 text-xs text-rose-600">{{ editNameError }}</p>
+                        </div>
+
+                        <div>
+                          <label class="erp-label">Email</label>
+                          <input
+                            v-model="editForm.email"
+                            class="erp-field"
+                            :class="editTouched.email && editEmailError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
+                            type="email"
+                            required
+                            @input="editTouched.email = true"
+                            @blur="editTouched.email = true"
+                          />
+                          <p v-if="editTouched.email && editEmailError" class="mt-1 text-xs text-rose-600">{{ editEmailError }}</p>
+                        </div>
+
+                        <div>
+                          <label class="erp-label">Perfil</label>
+                          <select
+                            v-model="editForm.role"
+                            class="erp-select"
+                            :disabled="isEditingOwnUser"
+                            @change="handleEditRoleChange"
+                          >
+                            <option v-for="role in roleOptions" :key="role" :value="role">{{ formatRole(role) }}</option>
+                          </select>
+                          <p v-if="isEditingOwnUser" class="mt-2 text-xs text-amber-700">
+                            Nao e permitido alterar o proprio perfil por esta tela.
+                          </p>
+                        </div>
+
+                        <div class="space-y-3">
+                          <label class="erp-label">Bases permitidas</label>
+
+                          <div
+                            v-if="isAdminRole(editForm.role)"
+                            class="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900"
+                          >
+                            Usuarios ADMIN recebem acesso automatico a todas as bases cadastradas.
+                            <span class="mt-1 block text-xs text-sky-700">
+                              Bases disponiveis no momento: {{ companyBases.length }}
+                            </span>
+                          </div>
+
+                          <div
+                            v-else-if="companyBases.length === 0"
+                            class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                          >
+                            Cadastre ao menos uma base antes de usar esse perfil.
+                          </div>
+
+                          <div v-else-if="isGestorRole(editForm.role)" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                              <p class="text-sm font-medium text-slate-700">Selecione as bases permitidas para o gestor.</p>
+                              <div class="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  class="erp-button-muted px-3 py-1.5 text-xs"
+                                  @click="
+                                    selectAllBases(editForm);
+                                    markEditAllowedBasesTouched();
+                                  "
+                                >
+                                  <ion-icon name="checkmark-done-outline"></ion-icon>
+                                  Marcar todas
+                                </button>
+                                <button
+                                  type="button"
+                                  class="erp-button-muted px-3 py-1.5 text-xs"
+                                  @click="
+                                    clearBaseSelection(editForm);
+                                    markEditAllowedBasesTouched();
+                                  "
+                                >
+                                  <ion-icon name="close-outline"></ion-icon>
+                                  Limpar
+                                </button>
+                              </div>
+                            </div>
+
+                            <div class="mt-3 grid gap-2">
+                              <label
+                                v-for="base in companyBases"
+                                :key="`edit-inline-${user.id}-${base.id}`"
+                                class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                              >
+                                <input
+                                  class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                  type="checkbox"
+                                  :checked="editForm.allowedBaseIds.includes(base.id)"
+                                  @change="
+                                    toggleGestorBase(editForm, base.id);
+                                    markEditAllowedBasesTouched();
+                                  "
+                                />
+                                <span>{{ base.name }}</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <p class="text-sm font-medium text-slate-700">Selecione a unica base permitida para o tecnico.</p>
+
+                            <div class="mt-3 grid gap-2">
+                              <label
+                                v-for="base in companyBases"
+                                :key="`edit-inline-tech-${user.id}-${base.id}`"
+                                class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                              >
+                                <input
+                                  class="h-4 w-4 border-slate-300 text-sky-600 focus:ring-sky-500"
+                                  type="radio"
+                                  name="edit-technician-base"
+                                  :checked="editForm.allowedBaseIds[0] === base.id"
+                                  @change="
+                                    selectTecnicoBase(editForm, base.id);
+                                    markEditAllowedBasesTouched();
+                                  "
+                                />
+                                <span>{{ base.name }}</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          <p v-if="editTouched.allowedBases && editAllowedBasesError" class="text-xs text-rose-600">
+                            {{ editAllowedBasesError }}
+                          </p>
+                        </div>
+
+                        <div class="flex flex-wrap gap-2">
+                          <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
+                            <ion-icon name="save-outline"></ion-icon>
+                            {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
+                          </button>
+                          <button type="button" class="erp-button-muted" @click="cancelEdit">
+                            <ion-icon name="close-circle-outline"></ion-icon>
+                            Cancelar
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>

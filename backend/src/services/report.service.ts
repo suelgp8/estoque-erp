@@ -9,6 +9,7 @@ import {
   UserWithBaseAccess
 } from "../repositories/report.repository";
 import { ReportExportService, TabularReport } from "./report-export.service";
+import { resolveStockStatus, resolveStockThresholds, type StockStatus } from "./stock-status.service";
 
 type ReportFormat = "excel" | "pdf";
 
@@ -20,6 +21,9 @@ type StockReportRow = {
   baseId: string;
   base: string;
   quantity: number;
+  minimumQuantity: number;
+  idealQuantity: number;
+  status: StockStatus;
   updatedAt: string;
 };
 
@@ -50,12 +54,13 @@ export class ReportService {
 
   async getStockReport(userId: string, filters: StockReportFilters) {
     const user = await this.requireUserWithBaseAccess(userId);
+    const allowedBaseIds = this.resolveAllowedBaseIds(user);
     const records = await this.reportRepository.getStockRecords(
       user.companyId,
       filters,
-      this.resolveAllowedBaseIds(user)
+      allowedBaseIds
     );
-    const rows = records.map((record) => this.mapStockRow(record));
+    const rows = records.flatMap((record) => this.mapStockRows(record, filters.baseId, allowedBaseIds));
 
     return {
       filters,
@@ -118,12 +123,18 @@ export class ReportService {
         contextLines: [`Base: ${await this.resolveBaseLabel(user.companyId, filters.baseId)}`]
       },
       columns: [
-        { header: "Produto", key: "productName", width: 24 },
+        { header: "Produto", key: "productName", width: 30 },
         { header: "Categoria", key: "category", width: 20 },
         { header: "Base", key: "base", width: 20 },
-        { header: "Quantidade", key: "quantity", width: 12 }
+        { header: "Qtd", key: "quantity", width: 10, align: "right" },
+        { header: "Min.", key: "minimumQuantity", width: 10, align: "right" },
+        { header: "Ideal", key: "idealQuantity", width: 10, align: "right" },
+        { header: "Status", key: "statusLabel", width: 16 }
       ],
-      rows: report.rows
+      rows: report.rows.map((row) => ({
+        ...row,
+        statusLabel: this.formatStockStatus(row.status)
+      }))
     };
 
     return this.exportReportByFormat(tabularReport, "estoque", format);
@@ -216,17 +227,46 @@ export class ReportService {
     return user.baseAccesses.map((access) => access.baseId);
   }
 
-  private mapStockRow(record: StockReportRecord): StockReportRow {
-    return {
-      productId: record.productId,
-      productName: record.product.name,
-      sku: record.product.sku,
-      category: record.product.category?.name ?? "Sem categoria",
-      baseId: record.baseId,
-      base: record.base.name,
-      quantity: record.quantity,
-      updatedAt: record.updatedAt.toISOString()
-    };
+  private mapStockRows(record: StockReportRecord, baseId?: string, allowedBaseIds?: string[]): StockReportRow[] {
+    const allowedBaseIdsSet = allowedBaseIds ? new Set(allowedBaseIds) : null;
+    const baseAccesses = record.baseAccesses.filter((access) => {
+      if (baseId && access.baseId !== baseId) {
+        return false;
+      }
+
+      if (allowedBaseIdsSet && !allowedBaseIdsSet.has(access.baseId)) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return baseAccesses.map((access) => {
+      const stock = record.stocks.find((item) => item.baseId === access.baseId);
+      const quantity = stock?.quantity ?? 0;
+      const { minimumQuantity, idealQuantity } = resolveStockThresholds({
+        stock,
+        legacyMinimumStock: record.minimumStock
+      });
+
+      return {
+        productId: record.id,
+        productName: record.name,
+        sku: record.sku,
+        category: record.category?.name ?? "Sem categoria",
+        baseId: access.base.id,
+        base: access.base.name,
+        quantity,
+        minimumQuantity,
+        idealQuantity,
+        status: resolveStockStatus({
+          quantity,
+          minimumQuantity,
+          idealQuantity
+        }),
+        updatedAt: (stock?.updatedAt ?? record.updatedAt).toISOString()
+      };
+    });
   }
 
   private mapMovementRow(record: MovementReportRecord): MovementReportRow {
@@ -259,6 +299,18 @@ export class ReportService {
 
     const base = await this.reportRepository.findBaseByIdAndCompany(baseId, companyId);
     return base?.name ?? baseId;
+  }
+
+  private formatStockStatus(status: StockStatus): string {
+    if (status === "CRITICAL") {
+      return "Critico";
+    }
+
+    if (status === "WARNING") {
+      return "Atencao";
+    }
+
+    return "Saudavel";
   }
 
   private async resolveMovementContextLines(companyId: string, filters: Partial<MovementReportFilters>): Promise<string[]> {

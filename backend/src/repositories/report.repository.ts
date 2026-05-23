@@ -38,29 +38,38 @@ export type UserWithBaseAccess = Prisma.UserGetPayload<{
   include: typeof userWithBaseAccessInclude;
 }>;
 
-const stockReportInclude = Prisma.validator<Prisma.StockInclude>()({
-  base: {
+const stockReportInclude = Prisma.validator<Prisma.ProductInclude>()({
+  category: {
     select: {
       id: true,
       name: true
     }
   },
-  product: {
-    select: {
-      id: true,
-      name: true,
-      sku: true,
-      category: {
+  baseAccesses: {
+    include: {
+      base: {
         select: {
           id: true,
           name: true
         }
       }
+    },
+    orderBy: {
+      createdAt: "asc"
+    }
+  },
+  stocks: {
+    select: {
+      baseId: true,
+      quantity: true,
+      minimumQuantity: true,
+      idealQuantity: true,
+      updatedAt: true
     }
   }
 });
 
-export type StockReportRecord = Prisma.StockGetPayload<{
+export type StockReportRecord = Prisma.ProductGetPayload<{
   include: typeof stockReportInclude;
 }>;
 
@@ -146,54 +155,58 @@ export class ReportRepository {
     filters: StockReportFilters,
     allowedBaseIds?: string[]
   ): Promise<StockReportRecord[]> {
-    const where: Prisma.StockWhereInput = {
-      companyId,
-      productId: filters.productId,
-      product: {
-        categoryId: filters.categoryId,
-        ...(filters.search
-          ? {
-              OR: [
-                {
-                  name: {
-                    contains: filters.search,
-                    mode: "insensitive"
-                  }
-                },
-                {
-                  sku: {
-                    contains: filters.search,
-                    mode: "insensitive"
-                  }
-                }
-              ]
-            }
-          : {})
-      }
-    };
-
-    if (allowedBaseIds !== undefined) {
-      if (allowedBaseIds.length === 0) {
-        return [];
-      }
-
-      where.baseId = filters.baseId
-        ? allowedBaseIds.includes(filters.baseId)
-          ? filters.baseId
-          : "__no_access__"
-        : {
-            in: allowedBaseIds
-          };
-    } else {
-      where.baseId = filters.baseId;
+    if (allowedBaseIds !== undefined && allowedBaseIds.length === 0) {
+      return [];
     }
 
-    return prisma.stock.findMany({
+    if (allowedBaseIds !== undefined && filters.baseId && !allowedBaseIds.includes(filters.baseId)) {
+      return [];
+    }
+
+    const where: Prisma.ProductWhereInput = {
+      companyId,
+      id: filters.productId,
+      categoryId: filters.categoryId,
+      ...(filters.search
+        ? {
+            OR: [
+              {
+                name: {
+                  contains: filters.search,
+                  mode: "insensitive"
+                }
+              },
+              {
+                sku: {
+                  contains: filters.search,
+                  mode: "insensitive"
+                }
+              }
+            ]
+          }
+        : {})
+    };
+
+    const baseIdsToMatch = filters.baseId ? [filters.baseId] : allowedBaseIds;
+
+    if (baseIdsToMatch !== undefined) {
+      where.baseAccesses = {
+        some: {
+          baseId: {
+            in: baseIdsToMatch
+          }
+        }
+      };
+    }
+
+    return prisma.product.findMany({
       where,
       include: stockReportInclude,
-      orderBy: {
-        updatedAt: "desc"
-      }
+      orderBy: [
+        {
+          name: "asc"
+        }
+      ]
     });
   }
 

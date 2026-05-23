@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useNotifier } from "../composables/useNotifier";
 import { ApiError, api } from "../services/api";
 import { useAuthStore } from "../stores/auth";
-import type { BaseEntity, CategoryEntity, ProductEntity, ReportFormat } from "../types/api";
+import type { BaseEntity, CategoryEntity, ProductEntity, ReportFormat, StockStatus } from "../types/api";
 import { formatDateTime } from "../utils/format";
 
 const auth = useAuthStore();
@@ -19,6 +19,9 @@ const deleteLoadingId = ref<string | null>(null);
 const exporting = ref<ReportFormat | null>(null);
 const selectedListBaseId = ref("");
 const selectedListCategoryId = ref("");
+const expandedProductIds = ref<string[]>([]);
+const stockConfigDrafts = reactive<Record<string, { minimumQuantity: number; idealQuantity: number }>>({});
+const stockConfigSavingKey = ref("");
 
 const createForm = reactive({
   name: "",
@@ -54,7 +57,6 @@ const editTouched = reactive({
 
 const canManage = computed(() => auth.state.user?.role === "ADMIN" || auth.state.user?.role === "GESTOR");
 const isAdmin = computed(() => auth.state.user?.role === "ADMIN");
-const isEditing = computed(() => Boolean(editForm.id));
 const accessibleBaseIds = computed(() => new Set((auth.state.user?.allowedBases ?? []).map((base) => base.id)));
 const visibleProducts = computed(() => {
   if (isAdmin.value) {
@@ -93,30 +95,86 @@ function resolveDisplayedStockQuantity(product: ProductEntity): number {
   return product.stockByBase.find((stock) => stock.baseId === selectedListBaseId.value)?.quantity ?? 0;
 }
 
-function resolveStockHealth(product: ProductEntity): {
+function resolveDisplayedThresholds(product: ProductEntity): {
+  minimumQuantity: number | null;
+  idealQuantity: number | null;
+} {
+  if (!selectedListBaseId.value) {
+    return {
+      minimumQuantity: null,
+      idealQuantity: null
+    };
+  }
+
+  const stock = product.stockByBase.find((item) => item.baseId === selectedListBaseId.value);
+
+  return {
+    minimumQuantity: stock?.minimumQuantity ?? 0,
+    idealQuantity: stock?.idealQuantity ?? 0
+  };
+}
+
+function resolveStatusMeta(status: StockStatus): {
   label: string;
   tone: string;
 } {
-  const quantity = resolveDisplayedStockQuantity(product);
-
-  if (quantity === 0) {
+  if (status === "CRITICAL") {
     return {
-      label: "Estoque zerado",
+      label: "Critico",
       tone: "border-rose-200 bg-rose-100 text-rose-800"
     };
   }
 
-  if (quantity <= product.minimumStock) {
+  if (status === "WARNING") {
     return {
-      label: "Estoque baixo",
+      label: "Atencao",
       tone: "border-amber-200 bg-amber-100 text-amber-800"
     };
   }
 
   return {
-    label: "Estoque bom",
+    label: "Saudavel",
     tone: "border-emerald-200 bg-emerald-100 text-emerald-800"
   };
+}
+
+function resolveStockHealth(product: ProductEntity): {
+  label: string;
+  tone: string;
+} {
+  if (selectedListBaseId.value) {
+    const stock = product.stockByBase.find((item) => item.baseId === selectedListBaseId.value);
+    return resolveStatusMeta(stock?.status ?? "HEALTHY");
+  }
+
+  if (product.stockByBase.some((stock) => stock.status === "CRITICAL")) {
+    return resolveStatusMeta("CRITICAL");
+  }
+
+  if (product.stockByBase.some((stock) => stock.status === "WARNING")) {
+    return resolveStatusMeta("WARNING");
+  }
+
+  return resolveStatusMeta("HEALTHY");
+}
+
+function resolveHealthSummary(product: ProductEntity): string {
+  if (selectedListBaseId.value) {
+    return resolveStockHealth(product).label;
+  }
+
+  const criticalCount = product.stockByBase.filter((stock) => stock.status === "CRITICAL").length;
+  const warningCount = product.stockByBase.filter((stock) => stock.status === "WARNING").length;
+
+  if (criticalCount > 0) {
+    return `${criticalCount} base(s) em nivel critico`;
+  }
+
+  if (warningCount > 0) {
+    return `${warningCount} base(s) em atencao`;
+  }
+
+  return "Bases dentro da meta";
 }
 
 function normalizeBaseIds(baseIds: string[]): string[] {
@@ -338,6 +396,18 @@ function canManageProductItem(product: ProductEntity): boolean {
   return product.allowedBases.every((base) => accessibleBaseIds.value.has(base.id));
 }
 
+function canManageProductBase(product: ProductEntity, baseId: string): boolean {
+  if (!canManage.value) {
+    return false;
+  }
+
+  if (isAdmin.value) {
+    return true;
+  }
+
+  return product.allowedBases.some((base) => base.id === baseId) && accessibleBaseIds.value.has(baseId);
+}
+
 function resolveProductBaseSummary(product: ProductEntity): string {
   if (selectedListBaseId.value) {
     return product.allowedBases.find((base) => base.id === selectedListBaseId.value)?.name ?? "-";
@@ -348,6 +418,96 @@ function resolveProductBaseSummary(product: ProductEntity): string {
   }
 
   return `${product.allowedBases.length} bases vinculadas`;
+}
+
+function resolveVisibleStockRows(product: ProductEntity) {
+  const visibleRows = !selectedListBaseId.value
+    ? product.stockByBase
+    : product.stockByBase.filter((stock) => stock.baseId === selectedListBaseId.value);
+
+  return [...visibleRows].sort((left, right) =>
+    resolveBaseName(product, left.baseId).localeCompare(resolveBaseName(product, right.baseId), "pt-BR")
+  );
+}
+
+function resolveBaseName(product: ProductEntity, baseId: string): string {
+  return product.allowedBases.find((base) => base.id === baseId)?.name ?? baseId;
+}
+
+function isProductExpanded(productId: string): boolean {
+  return expandedProductIds.value.includes(productId);
+}
+
+function toggleProductExpansion(productId: string) {
+  if (isProductExpanded(productId)) {
+    if (editForm.id === productId) {
+      cancelEdit();
+    }
+
+    expandedProductIds.value = expandedProductIds.value.filter((id) => id !== productId);
+    return;
+  }
+
+  expandedProductIds.value = [...expandedProductIds.value, productId];
+}
+
+function syncExpandedProducts() {
+  const visibleProductIds = new Set(filteredProducts.value.map((product) => product.id));
+  expandedProductIds.value = expandedProductIds.value.filter((productId) => visibleProductIds.has(productId));
+}
+
+function buildStockConfigDraftKey(productId: string, baseId: string): string {
+  return `${productId}:${baseId}`;
+}
+
+function syncStockConfigDrafts() {
+  for (const key of Object.keys(stockConfigDrafts)) {
+    delete stockConfigDrafts[key];
+  }
+
+  for (const product of products.value) {
+    for (const stock of product.stockByBase) {
+      stockConfigDrafts[buildStockConfigDraftKey(product.id, stock.baseId)] = {
+        minimumQuantity: stock.minimumQuantity,
+        idealQuantity: stock.idealQuantity
+      };
+    }
+  }
+}
+
+function getStockConfigDraft(productId: string, baseId: string): { minimumQuantity: number; idealQuantity: number } {
+  const key = buildStockConfigDraftKey(productId, baseId);
+
+  if (!stockConfigDrafts[key]) {
+    stockConfigDrafts[key] = {
+      minimumQuantity: 0,
+      idealQuantity: 0
+    };
+  }
+
+  return stockConfigDrafts[key];
+}
+
+function validateStockConfiguration(minimumQuantity: number, idealQuantity: number): string {
+  if (!Number.isInteger(minimumQuantity) || minimumQuantity < 0) {
+    return "Estoque minimo deve ser um numero inteiro maior ou igual a zero.";
+  }
+
+  if (!Number.isInteger(idealQuantity) || idealQuantity < 0) {
+    return "Estoque ideal deve ser um numero inteiro maior ou igual a zero.";
+  }
+
+  if (idealQuantity < minimumQuantity) {
+    return "Estoque ideal deve ser maior ou igual ao mínimo";
+  }
+
+  return "";
+}
+
+function resolveStockConfigurationError(productId: string, baseId: string): string {
+  const draft = getStockConfigDraft(productId, baseId);
+
+  return validateStockConfiguration(draft.minimumQuantity, draft.idealQuantity);
 }
 
 function resetCreateForm() {
@@ -382,6 +542,10 @@ function startEdit(product: ProductEntity) {
   editTouched.description = false;
   editTouched.allowedBases = false;
   editTouched.categoryId = false;
+
+  if (!isProductExpanded(product.id)) {
+    expandedProductIds.value = [...expandedProductIds.value, product.id];
+  }
 }
 
 function cancelEdit() {
@@ -396,6 +560,42 @@ function cancelEdit() {
   editTouched.description = false;
   editTouched.allowedBases = false;
   editTouched.categoryId = false;
+}
+
+async function handleSaveStockConfiguration(product: ProductEntity, baseId: string) {
+  if (!auth.state.token || !canManageProductBase(product, baseId)) {
+    return;
+  }
+
+  const draft = getStockConfigDraft(product.id, baseId);
+
+  const validationMessage = validateStockConfiguration(draft.minimumQuantity, draft.idealQuantity);
+
+  if (validationMessage) {
+    notifier.error("Configuracao invalida", validationMessage);
+    return;
+  }
+
+  const savingKey = buildStockConfigDraftKey(product.id, baseId);
+  stockConfigSavingKey.value = savingKey;
+
+  try {
+    await api.updateStockConfiguration(auth.state.token, {
+      productId: product.id,
+      baseId,
+      minimumQuantity: draft.minimumQuantity,
+      idealQuantity: draft.idealQuantity
+    });
+
+    notifier.success("Configuracao salva", `Estoque por base atualizado para ${resolveBaseName(product, baseId)}.`);
+    await loadProductsCategoriesAndBases();
+  } catch (error) {
+    notifier.error("Falha ao salvar configuracao", resolveErrorMessage(error));
+  } finally {
+    if (stockConfigSavingKey.value === savingKey) {
+      stockConfigSavingKey.value = "";
+    }
+  }
 }
 
 async function loadProductsCategoriesAndBases() {
@@ -415,6 +615,7 @@ async function loadProductsCategoriesAndBases() {
     products.value = productsResponse.products;
     categories.value = categoriesResponse.categories;
     bases.value = basesResponse.bases;
+    syncStockConfigDrafts();
     syncListBaseSelection();
     syncListCategorySelection();
   } catch (error) {
@@ -581,6 +782,10 @@ watch(selectedListCategoryId, () => {
     cancelEdit();
   }
 });
+
+watch(filteredProducts, () => {
+  syncExpandedProducts();
+});
 </script>
 
 <template>
@@ -608,7 +813,7 @@ watch(selectedListCategoryId, () => {
       </p>
     </article>
 
-    <section v-if="canManage" class="grid gap-6 xl:grid-cols-[1fr_1fr]">
+    <section v-if="canManage" class="grid gap-6 xl:grid-cols-[minmax(0,520px)]">
       <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.05s">
         <h2 class="font-heading text-2xl text-slate-900">Novo produto</h2>
 
@@ -713,7 +918,7 @@ watch(selectedListCategoryId, () => {
           </div>
 
           <div>
-            <label class="erp-label">Estoque minimo</label>
+            <label class="erp-label">Estoque minimo global (legado)</label>
             <input
               v-model.number="createForm.minimumStock"
               class="erp-field"
@@ -723,7 +928,7 @@ watch(selectedListCategoryId, () => {
             />
             <p v-if="createMinimumStockError" class="mt-1 text-xs text-rose-600">{{ createMinimumStockError }}</p>
             <p v-else class="mt-1 text-xs text-slate-500">
-              Esse valor servira de referencia para alertas futuros de estoque baixo.
+              A configuracao principal agora fica no bloco "Estoque por Base" apos o cadastro do produto.
             </p>
           </div>
 
@@ -745,166 +950,6 @@ watch(selectedListCategoryId, () => {
             <ion-icon name="add-circle-outline"></ion-icon>
             {{ createLoading ? "Criando..." : "Criar produto" }}
           </button>
-        </form>
-      </article>
-
-      <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.1s">
-        <h2 class="font-heading text-2xl text-slate-900">Editar produto</h2>
-
-        <div
-          v-if="!isEditing"
-          class="mt-5 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500"
-        >
-          Selecione um produto na tabela para editar.
-        </div>
-
-        <form v-else class="mt-5 space-y-4" @submit.prevent="handleEditProduct">
-          <div>
-            <label class="erp-label">Nome</label>
-            <input
-              v-model="editForm.name"
-              class="erp-field"
-              :class="editTouched.name && editNameError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
-              type="text"
-              required
-              @input="editTouched.name = true"
-              @blur="editTouched.name = true"
-            />
-            <p v-if="editTouched.name && editNameError" class="mt-1 text-xs text-rose-600">{{ editNameError }}</p>
-          </div>
-
-          <div>
-            <label class="erp-label">SKU gerado</label>
-            <input
-              :value="editForm.sku"
-              class="erp-field cursor-not-allowed font-mono text-slate-500"
-              type="text"
-              disabled
-              readonly
-            />
-            <p class="mt-1 text-xs text-slate-500">Esse codigo e gerado pelo sistema e nao precisa de edicao manual.</p>
-          </div>
-
-          <div class="space-y-3">
-            <label class="erp-label">Bases vinculadas</label>
-
-            <div
-              v-if="bases.length === 0"
-              class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-            >
-              Cadastre ao menos uma base antes de usar este cadastro.
-            </div>
-
-            <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <p class="text-sm font-medium text-slate-700">Selecione as bases permitidas para este produto.</p>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    class="erp-button-muted px-3 py-1.5 text-xs"
-                    @click="
-                      selectAllBases(editForm);
-                      editTouched.allowedBases = true;
-                    "
-                  >
-                    <ion-icon name="checkmark-done-outline"></ion-icon>
-                    Marcar todas
-                  </button>
-                  <button
-                    type="button"
-                    class="erp-button-muted px-3 py-1.5 text-xs"
-                    @click="
-                      clearBaseSelection(editForm);
-                      editTouched.allowedBases = true;
-                    "
-                  >
-                    <ion-icon name="close-outline"></ion-icon>
-                    Limpar
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-3 grid gap-2">
-                <label
-                  v-for="base in bases"
-                  :key="`edit-${base.id}`"
-                  class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                >
-                  <input
-                    class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                    type="checkbox"
-                    :checked="editForm.allowedBaseIds.includes(base.id)"
-                    @change="
-                      toggleBaseSelection(editForm, base.id);
-                      editTouched.allowedBases = true;
-                    "
-                  />
-                  <span>{{ base.name }}</span>
-                </label>
-              </div>
-            </div>
-
-            <p v-if="editTouched.allowedBases && editAllowedBasesError" class="text-xs text-rose-600">
-              {{ editAllowedBasesError }}
-            </p>
-          </div>
-
-          <div>
-            <label class="erp-label">Categoria (opcional)</label>
-            <select
-              v-model="editForm.categoryId"
-              class="erp-select"
-              @change="editTouched.categoryId = true"
-            >
-              <option value="">Sem categoria</option>
-              <option v-for="category in availableEditCategories" :key="category.id" :value="category.id">
-                {{ category.name }}
-              </option>
-            </select>
-            <p v-if="editTouched.categoryId && editCategoryError" class="mt-1 text-xs text-rose-600">
-              {{ editCategoryError }}
-            </p>
-          </div>
-
-          <div>
-            <label class="erp-label">Estoque minimo</label>
-            <input
-              v-model.number="editForm.minimumStock"
-              class="erp-field"
-              type="number"
-              min="0"
-              step="1"
-            />
-            <p v-if="editMinimumStockError" class="mt-1 text-xs text-rose-600">{{ editMinimumStockError }}</p>
-            <p v-else class="mt-1 text-xs text-slate-500">
-              Use esse valor como linha de corte para alertas de estoque baixo.
-            </p>
-          </div>
-
-          <div>
-            <label class="erp-label">Descricao (opcional)</label>
-            <textarea
-              v-model="editForm.description"
-              class="min-h-[92px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
-              maxlength="255"
-              @input="editTouched.description = true"
-              @blur="editTouched.description = true"
-            />
-            <p v-if="editTouched.description && editDescriptionError" class="mt-1 text-xs text-rose-600">
-              {{ editDescriptionError }}
-            </p>
-          </div>
-
-          <div class="flex flex-wrap gap-2">
-            <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
-              <ion-icon name="save-outline"></ion-icon>
-              {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
-            </button>
-            <button type="button" class="erp-button-muted" @click="cancelEdit">
-              <ion-icon name="close-circle-outline"></ion-icon>
-              Cancelar
-            </button>
-          </div>
         </form>
       </article>
     </section>
@@ -972,61 +1017,345 @@ watch(selectedListCategoryId, () => {
                 {{ selectedListBaseName ? "Nenhum produto vinculado a esta base." : "Nenhum produto encontrado." }}
               </td>
             </tr>
-            <tr v-for="product in filteredProducts" :key="product.id">
-              <td data-label="Produto">
-                <div class="min-w-0 space-y-1">
-                  <p class="font-medium text-slate-900">{{ product.name }}</p>
-                  <p class="font-mono text-xs text-slate-500">SKU {{ product.sku }}</p>
-                </div>
-              </td>
-              <td data-label="Contexto">
-                <div class="flex flex-col gap-2">
-                  <p class="text-sm text-slate-700">{{ product.category?.name ?? "Sem categoria" }}</p>
-                  <span class="inline-flex w-fit rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                    {{ resolveProductBaseSummary(product) }}
-                  </span>
-                </div>
-              </td>
-              <td data-label="Indicadores">
-                <div class="flex flex-wrap gap-2">
-                  <span
-                    class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800"
-                    :title="`${product.stocksCount} base(s) com registro de estoque`"
-                  >
-                    Estoque {{ resolveDisplayedStockQuantity(product) }}
-                  </span>
-                  <span class="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
-                    Min. {{ product.minimumStock }}
-                  </span>
-                  <span
-                    class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold"
-                    :class="resolveStockHealth(product).tone"
-                  >
-                    {{ resolveStockHealth(product).label }}
-                  </span>
-                </div>
-              </td>
-              <td data-label="Atualizado em" class="text-sm">{{ formatDateTime(product.updatedAt) }}</td>
-              <td data-label="Acoes" class="w-[180px]">
-                <div v-if="canManageProductItem(product)" class="flex flex-wrap gap-2">
-                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(product)">
-                    <ion-icon name="create-outline"></ion-icon>
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
-                    :disabled="deleteLoadingId === product.id"
-                    @click="handleDeleteProduct(product)"
-                  >
-                    <ion-icon name="trash-outline"></ion-icon>
-                    {{ deleteLoadingId === product.id ? "Excluindo..." : "Excluir" }}
-                  </button>
-                </div>
-                <span v-else-if="canManage" class="text-xs text-amber-700">Acesso parcial</span>
-                <span v-else class="text-xs text-slate-500">Somente consulta</span>
-              </td>
-            </tr>
+            <template v-for="product in filteredProducts" :key="product.id">
+              <tr
+                class="cursor-pointer transition hover:bg-slate-50"
+                :class="isProductExpanded(product.id) ? 'bg-slate-50/80' : ''"
+                tabindex="0"
+                role="button"
+                :aria-expanded="isProductExpanded(product.id)"
+                @click="toggleProductExpansion(product.id)"
+                @keydown.enter.prevent="toggleProductExpansion(product.id)"
+                @keydown.space.prevent="toggleProductExpansion(product.id)"
+              >
+                <td data-label="Produto">
+                  <div class="flex min-w-0 items-start gap-3">
+                    <span
+                      class="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500"
+                    >
+                      <ion-icon :name="isProductExpanded(product.id) ? 'chevron-up-outline' : 'chevron-down-outline'"></ion-icon>
+                    </span>
+                    <div class="min-w-0 space-y-1">
+                      <p class="font-medium text-slate-900">{{ product.name }}</p>
+                      <p class="font-mono text-xs text-slate-500">SKU {{ product.sku }}</p>
+                      <p class="text-xs text-slate-400">Clique para {{ isProductExpanded(product.id) ? "ocultar" : "ver" }} o estoque por base</p>
+                    </div>
+                  </div>
+                </td>
+                <td data-label="Contexto">
+                  <div class="flex flex-col gap-2">
+                    <p class="text-sm text-slate-700">{{ product.category?.name ?? "Sem categoria" }}</p>
+                    <span class="inline-flex w-fit rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                      {{ resolveProductBaseSummary(product) }}
+                    </span>
+                  </div>
+                </td>
+                <td data-label="Indicadores">
+                  <div class="flex flex-wrap gap-2">
+                    <span
+                      class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800"
+                      :title="`${product.stocksCount} base(s) com registro de estoque`"
+                    >
+                      Estoque {{ resolveDisplayedStockQuantity(product) }}
+                    </span>
+                    <span class="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
+                      <template v-if="selectedListBaseId">
+                        Min. {{ resolveDisplayedThresholds(product).minimumQuantity }} | Ideal. {{ resolveDisplayedThresholds(product).idealQuantity }}
+                      </template>
+                      <template v-else>Config. por base</template>
+                    </span>
+                    <span
+                      class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold"
+                      :class="resolveStockHealth(product).tone"
+                    >
+                      {{ resolveHealthSummary(product) }}
+                    </span>
+                  </div>
+                </td>
+                <td data-label="Atualizado em" class="text-sm">{{ formatDateTime(product.updatedAt) }}</td>
+                <td data-label="Acoes" class="w-[180px]">
+                  <div v-if="canManageProductItem(product)" class="flex flex-wrap gap-2">
+                    <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click.stop="startEdit(product)">
+                      <ion-icon name="create-outline"></ion-icon>
+                      {{ editForm.id === product.id ? "Editando" : "Editar" }}
+                    </button>
+                    <button
+                      type="button"
+                      class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
+                      :disabled="deleteLoadingId === product.id"
+                      @click.stop="handleDeleteProduct(product)"
+                    >
+                      <ion-icon name="trash-outline"></ion-icon>
+                      {{ deleteLoadingId === product.id ? "Excluindo..." : "Excluir" }}
+                    </button>
+                  </div>
+                  <span v-else-if="canManage" class="text-xs text-amber-700">Acesso parcial</span>
+                  <span v-else class="text-xs text-slate-500">Somente consulta</span>
+                </td>
+              </tr>
+              <tr v-if="isProductExpanded(product.id)" class="bg-slate-50/70">
+                <td colspan="5" class="px-4 py-4">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p class="text-sm font-semibold text-slate-900">Estoque por Base</p>
+                        <p class="text-xs text-slate-500">
+                          Configure minimo e ideal por unidade sem alterar o saldo fisico.
+                        </p>
+                      </div>
+                      <p class="text-xs text-slate-500">
+                        Produto {{ product.name }} | {{ resolveVisibleStockRows(product).length }} base(s) exibida(s)
+                      </p>
+                    </div>
+
+                    <div class="mt-4 overflow-x-auto">
+                      <table class="min-w-full text-sm">
+                        <thead>
+                          <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-[0.12em] text-slate-500">
+                            <th class="px-3 py-2 font-medium">Base</th>
+                            <th class="px-3 py-2 font-medium">Estoque atual</th>
+                            <th class="px-3 py-2 font-medium">Estoque minimo</th>
+                            <th class="px-3 py-2 font-medium">Estoque ideal</th>
+                            <th class="px-3 py-2 font-medium">Status</th>
+                            <th class="px-3 py-2 font-medium text-right">Acao</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-if="resolveVisibleStockRows(product).length === 0">
+                            <td colspan="6" class="px-3 py-4 text-center text-slate-500">
+                              Nenhum estoque por base encontrado para o filtro atual.
+                            </td>
+                          </tr>
+                          <tr
+                            v-for="stock in resolveVisibleStockRows(product)"
+                            :key="`${product.id}-${stock.baseId}`"
+                            class="border-b border-slate-100 last:border-b-0"
+                          >
+                            <td class="px-3 py-3 font-medium text-slate-900">{{ resolveBaseName(product, stock.baseId) }}</td>
+                            <td class="px-3 py-3 text-slate-700">{{ stock.quantity }}</td>
+                            <td class="px-3 py-3">
+                              <input
+                                v-model.number="getStockConfigDraft(product.id, stock.baseId).minimumQuantity"
+                                class="erp-field min-w-[110px]"
+                                type="number"
+                                min="0"
+                                step="1"
+                                :disabled="!canManageProductBase(product, stock.baseId)"
+                              />
+                            </td>
+                            <td class="px-3 py-3">
+                              <input
+                                v-model.number="getStockConfigDraft(product.id, stock.baseId).idealQuantity"
+                                class="erp-field min-w-[110px]"
+                                type="number"
+                                min="0"
+                                step="1"
+                                :disabled="!canManageProductBase(product, stock.baseId)"
+                              />
+                              <p
+                                v-if="resolveStockConfigurationError(product.id, stock.baseId)"
+                                class="mt-1 text-xs text-rose-600"
+                              >
+                                {{ resolveStockConfigurationError(product.id, stock.baseId) }}
+                              </p>
+                            </td>
+                            <td class="px-3 py-3">
+                              <span
+                                class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold"
+                                :class="resolveStatusMeta(stock.status).tone"
+                              >
+                                {{ resolveStatusMeta(stock.status).label }}
+                              </span>
+                            </td>
+                            <td class="px-3 py-3 text-right">
+                              <button
+                                v-if="canManageProductBase(product, stock.baseId)"
+                                type="button"
+                                class="erp-button-muted px-3 py-1.5 text-xs"
+                                :disabled="
+                                  stockConfigSavingKey === buildStockConfigDraftKey(product.id, stock.baseId) ||
+                                  Boolean(resolveStockConfigurationError(product.id, stock.baseId))
+                                "
+                                @click="handleSaveStockConfiguration(product, stock.baseId)"
+                              >
+                                <ion-icon name="save-outline"></ion-icon>
+                                {{
+                                  stockConfigSavingKey === buildStockConfigDraftKey(product.id, stock.baseId)
+                                    ? "Salvando..."
+                                    : "Salvar"
+                                }}
+                              </button>
+                              <span v-else class="text-xs text-slate-500">Somente consulta</span>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div v-if="editForm.id === product.id && canManageProductItem(product)" class="mt-6 border-t border-slate-200 pt-5">
+                      <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p class="text-sm font-semibold text-slate-900">Editar produto</p>
+                          <p class="text-xs text-slate-500">Atualize o cadastro sem sair da listagem.</p>
+                        </div>
+                        <p class="text-xs text-slate-500">
+                          {{ selectedListBaseName ? `Filtro atual: ${selectedListBaseName}` : "Exibindo todas as bases vinculadas" }}
+                        </p>
+                      </div>
+
+                      <form class="mt-4 space-y-4" @submit.prevent="handleEditProduct">
+                        <div>
+                          <label class="erp-label">Nome</label>
+                          <input
+                            v-model="editForm.name"
+                            class="erp-field"
+                            :class="editTouched.name && editNameError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
+                            type="text"
+                            required
+                            @input="editTouched.name = true"
+                            @blur="editTouched.name = true"
+                          />
+                          <p v-if="editTouched.name && editNameError" class="mt-1 text-xs text-rose-600">{{ editNameError }}</p>
+                        </div>
+
+                        <div>
+                          <label class="erp-label">SKU gerado</label>
+                          <input
+                            :value="editForm.sku"
+                            class="erp-field cursor-not-allowed font-mono text-slate-500"
+                            type="text"
+                            disabled
+                            readonly
+                          />
+                          <p class="mt-1 text-xs text-slate-500">Esse codigo e gerado pelo sistema e nao precisa de edicao manual.</p>
+                        </div>
+
+                        <div class="space-y-3">
+                          <label class="erp-label">Bases vinculadas</label>
+
+                          <div
+                            v-if="bases.length === 0"
+                            class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                          >
+                            Cadastre ao menos uma base antes de usar este cadastro.
+                          </div>
+
+                          <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                              <p class="text-sm font-medium text-slate-700">Selecione as bases permitidas para este produto.</p>
+                              <div class="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  class="erp-button-muted px-3 py-1.5 text-xs"
+                                  @click="
+                                    selectAllBases(editForm);
+                                    editTouched.allowedBases = true;
+                                  "
+                                >
+                                  <ion-icon name="checkmark-done-outline"></ion-icon>
+                                  Marcar todas
+                                </button>
+                                <button
+                                  type="button"
+                                  class="erp-button-muted px-3 py-1.5 text-xs"
+                                  @click="
+                                    clearBaseSelection(editForm);
+                                    editTouched.allowedBases = true;
+                                  "
+                                >
+                                  <ion-icon name="close-outline"></ion-icon>
+                                  Limpar
+                                </button>
+                              </div>
+                            </div>
+
+                            <div class="mt-3 grid gap-2">
+                              <label
+                                v-for="base in bases"
+                                :key="`edit-inline-${product.id}-${base.id}`"
+                                class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                              >
+                                <input
+                                  class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                  type="checkbox"
+                                  :checked="editForm.allowedBaseIds.includes(base.id)"
+                                  @change="
+                                    toggleBaseSelection(editForm, base.id);
+                                    editTouched.allowedBases = true;
+                                  "
+                                />
+                                <span>{{ base.name }}</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          <p v-if="editTouched.allowedBases && editAllowedBasesError" class="text-xs text-rose-600">
+                            {{ editAllowedBasesError }}
+                          </p>
+                        </div>
+
+                        <div>
+                          <label class="erp-label">Categoria (opcional)</label>
+                          <select
+                            v-model="editForm.categoryId"
+                            class="erp-select"
+                            @change="editTouched.categoryId = true"
+                          >
+                            <option value="">Sem categoria</option>
+                            <option v-for="category in availableEditCategories" :key="category.id" :value="category.id">
+                              {{ category.name }}
+                            </option>
+                          </select>
+                          <p v-if="editTouched.categoryId && editCategoryError" class="mt-1 text-xs text-rose-600">
+                            {{ editCategoryError }}
+                          </p>
+                        </div>
+
+                        <div>
+                          <label class="erp-label">Estoque minimo global (legado)</label>
+                          <input
+                            v-model.number="editForm.minimumStock"
+                            class="erp-field"
+                            type="number"
+                            min="0"
+                            step="1"
+                          />
+                          <p v-if="editMinimumStockError" class="mt-1 text-xs text-rose-600">{{ editMinimumStockError }}</p>
+                          <p v-else class="mt-1 text-xs text-slate-500">
+                            A configuracao ativa por base fica logo acima, neste mesmo bloco do produto.
+                          </p>
+                        </div>
+
+                        <div>
+                          <label class="erp-label">Descricao (opcional)</label>
+                          <textarea
+                            v-model="editForm.description"
+                            class="min-h-[92px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                            maxlength="255"
+                            @input="editTouched.description = true"
+                            @blur="editTouched.description = true"
+                          />
+                          <p v-if="editTouched.description && editDescriptionError" class="mt-1 text-xs text-rose-600">
+                            {{ editDescriptionError }}
+                          </p>
+                        </div>
+
+                        <div class="flex flex-wrap gap-2">
+                          <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
+                            <ion-icon name="save-outline"></ion-icon>
+                            {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
+                          </button>
+                          <button type="button" class="erp-button-muted" @click="cancelEdit">
+                            <ion-icon name="close-circle-outline"></ion-icon>
+                            Cancelar
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>

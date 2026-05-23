@@ -18,6 +18,8 @@ const legacyStocks = pgTable(
     productId: text("productId").notNull(),
     baseId: text("baseId").notNull(),
     quantity: integer("quantity").notNull().default(0),
+    minimumQuantity: integer("minimumQuantity").notNull().default(0),
+    idealQuantity: integer("idealQuantity").notNull().default(0),
     createdAt: timestamp("createdAt", { mode: "date", precision: 3 }).notNull().defaultNow(),
     updatedAt: timestamp("updatedAt", { mode: "date", precision: 3 }).notNull().defaultNow(),
   },
@@ -67,6 +69,8 @@ export type StockSnapshot = {
   productId: string;
   baseId: string;
   quantity: number;
+  minimumQuantity: number;
+  idealQuantity: number;
 };
 
 export type StockMutationResult = {
@@ -139,12 +143,14 @@ export class StockServiceTransaction {
         productId: legacyStocks.productId,
         baseId: legacyStocks.baseId,
         quantity: legacyStocks.quantity,
+        minimumQuantity: legacyStocks.minimumQuantity,
+        idealQuantity: legacyStocks.idealQuantity,
       })
       .from(legacyStocks)
       .where(and(eq(legacyStocks.productId, productId), eq(legacyStocks.baseId, baseId)))
       .limit(1);
 
-    return stock ?? { productId, baseId, quantity: 0 };
+    return stock ?? { productId, baseId, quantity: 0, minimumQuantity: 0, idealQuantity: 0 };
   }
 
   private assertPositiveQuantity(quantity: number) {
@@ -159,7 +165,16 @@ export class StockServiceTransaction {
 
     await this.executor
       .insert(legacyStocks)
-      .values({ companyId, productId, baseId, quantity: 0, createdAt: now, updatedAt: now })
+      .values({
+        companyId,
+        productId,
+        baseId,
+        quantity: 0,
+        minimumQuantity: 0,
+        idealQuantity: 0,
+        createdAt: now,
+        updatedAt: now
+      })
       .onConflictDoNothing({ target: [legacyStocks.productId, legacyStocks.baseId] });
   }
 
@@ -172,6 +187,8 @@ export class StockServiceTransaction {
         productId: legacyStocks.productId,
         baseId: legacyStocks.baseId,
         quantity: legacyStocks.quantity,
+        minimumQuantity: legacyStocks.minimumQuantity,
+        idealQuantity: legacyStocks.idealQuantity,
       });
 
     if (!stock) {
@@ -191,6 +208,8 @@ export class StockServiceTransaction {
         productId: legacyStocks.productId,
         baseId: legacyStocks.baseId,
         quantity: legacyStocks.quantity,
+        minimumQuantity: legacyStocks.minimumQuantity,
+        idealQuantity: legacyStocks.idealQuantity,
       });
 
     if (!stock) {

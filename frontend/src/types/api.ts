@@ -4,6 +4,8 @@ export type StockMovementType = "ENTRY" | "EXIT" | "TRANSFER";
 
 export type StockMovementStatus = "PENDING" | "APPROVED" | "COMPLETED" | "REJECTED" | "CANCELED" | "REVERSED";
 
+export type StockStatus = "CRITICAL" | "WARNING" | "HEALTHY";
+
 export type ReportFormat = "excel" | "pdf";
 
 export interface AllowedBaseSummary {
@@ -102,6 +104,9 @@ export interface ProductEntity {
   stockByBase: Array<{
     baseId: string;
     quantity: number;
+    minimumQuantity: number;
+    idealQuantity: number;
+    status: StockStatus;
   }>;
   movementItemsCount: number;
   createdAt: string;
@@ -304,6 +309,16 @@ export interface StockByBaseResponse {
   productId: string;
   baseId: string;
   quantity: number;
+  minimumQuantity: number;
+  idealQuantity: number;
+  status: StockStatus;
+}
+
+export interface UpdateStockConfigurationPayload {
+  productId: string;
+  baseId: string;
+  minimumQuantity: number;
+  idealQuantity: number;
 }
 
 export interface StockReportRow {
@@ -314,6 +329,9 @@ export interface StockReportRow {
   baseId: string;
   base: string;
   quantity: number;
+  minimumQuantity: number;
+  idealQuantity: number;
+  status: StockStatus;
   updatedAt: string;
 }
 

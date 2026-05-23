@@ -152,6 +152,8 @@ model Stock {
   productId String
   baseId    String
   quantity  Int      @default(0)
+  minimumQuantity Int @default(0)
+  idealQuantity   Int @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)

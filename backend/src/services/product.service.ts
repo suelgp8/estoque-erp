@@ -7,6 +7,7 @@ import {
   ProductWithRelations,
   UserWithBaseAccess
 } from "../repositories/product.repository";
+import { resolveStockStatus, resolveStockThresholds, type StockStatus } from "./stock-status.service";
 
 type ReportFormat = "excel" | "pdf";
 
@@ -39,6 +40,9 @@ type BaseAccessPayload = {
 type StockBalancePayload = {
   baseId: string;
   quantity: number;
+  minimumQuantity: number;
+  idealQuantity: number;
+  status: StockStatus;
 };
 
 type ProductPayload = {
@@ -261,14 +265,14 @@ export class ProductService {
         ]
       },
       columns: [
-        { header: "Produto", key: "productName", width: 28 },
-        { header: "Categoria", key: "category", width: 22 },
-        { header: "Bases", key: "bases", width: 22 },
-        { header: "Estoque Atual", key: "stockQuantity", width: 14 },
-        { header: "Estoque Minimo", key: "minimumStock", width: 16 },
-        { header: "Status", key: "stockStatus", width: 16 }
+        { header: "Produto", key: "productName", width: 34 },
+        { header: "Categoria", key: "category", width: 24 },
+        { header: "Estoque", key: "stockQuantity", width: 10, align: "right" },
+        { header: "Indicadores", key: "thresholds", width: 20 },
+        { header: "Status", key: "stockStatus", width: 12 },
+        { header: "Atualizado", key: "updatedAt", width: 16 }
       ],
-      rows,
+      rows
     };
 
     return this.exportReportByFormat(report, "produtos-estoque", format);
@@ -372,10 +376,26 @@ export class ProductService {
   }
 
   private serializeProduct(product: ProductWithRelations): ProductPayload {
-    const stockByBase = product.stocks.map((stock) => ({
-      baseId: stock.baseId,
-      quantity: stock.quantity
-    }));
+    const stockByBase = product.baseAccesses.map((access) => {
+      const stock = product.stocks.find((item) => item.baseId === access.baseId);
+      const quantity = stock?.quantity ?? 0;
+      const { minimumQuantity, idealQuantity } = resolveStockThresholds({
+        stock,
+        legacyMinimumStock: product.minimumStock
+      });
+
+      return {
+        baseId: access.base.id,
+        quantity,
+        minimumQuantity,
+        idealQuantity,
+        status: resolveStockStatus({
+          quantity,
+          minimumQuantity,
+          idealQuantity
+        })
+      };
+    });
     const stockQuantity = stockByBase.reduce((total, stock) => total + stock.quantity, 0);
 
     return {
@@ -413,78 +433,60 @@ export class ProductService {
     return product.stockByBase.find((stock) => stock.baseId === baseId)?.quantity ?? 0;
   }
 
-  private resolveProductBaseSummary(product: ProductPayload, baseId?: string): string {
-    if (baseId) {
-      return product.allowedBases.find((base) => base.id === baseId)?.name ?? "-";
+  private resolveDisplayedThresholds(product: ProductPayload, baseId?: string): string {
+    if (!baseId) {
+      return "Config. por base";
     }
 
-    if (product.allowedBases.length === 1) {
-      return product.allowedBases[0]?.name ?? "-";
-    }
-
-    return `${product.allowedBases.length} bases vinculadas`;
+    const stock = product.stockByBase.find((item) => item.baseId === baseId);
+    return `Min. ${stock?.minimumQuantity ?? 0} | Ideal. ${stock?.idealQuantity ?? 0}`;
   }
 
-  private resolveStockHealthLabel(stockQuantity: number, minimumStock: number): string {
-    if (stockQuantity === 0) {
-      return "Estoque zerado";
+  private resolveStockHealthLabel(product: ProductPayload, baseId?: string): string {
+    if (baseId) {
+      const stock = product.stockByBase.find((item) => item.baseId === baseId);
+
+      if (stock?.status === "CRITICAL") {
+        return "Critico";
+      }
+
+      if (stock?.status === "WARNING") {
+        return "Atencao";
+      }
+
+      return "Saudavel";
     }
 
-    if (stockQuantity <= minimumStock) {
-      return "Estoque baixo";
+    const criticalCount = product.stockByBase.filter((stock) => stock.status === "CRITICAL").length;
+    const warningCount = product.stockByBase.filter((stock) => stock.status === "WARNING").length;
+
+    if (criticalCount > 0) {
+      return `${criticalCount} base(s) em nivel critico`;
     }
 
-    return "Estoque bom";
+    if (warningCount > 0) {
+      return `${warningCount} base(s) em atencao`;
+    }
+
+    return "Bases dentro da meta";
   }
 
   private buildGroupedProductReportRows(products: ProductPayload[], baseId?: string): Array<Record<string, string | number>> {
-    const groupedProducts = new Map<string, ProductPayload[]>();
+    return [...products]
+      .sort((left, right) => {
+        const leftCategory = left.category?.name ?? "Sem categoria";
+        const rightCategory = right.category?.name ?? "Sem categoria";
 
-    for (const product of [...products].sort((left, right) => {
-      const leftCategory = left.category?.name ?? "Sem categoria";
-      const rightCategory = right.category?.name ?? "Sem categoria";
-
-      return leftCategory.localeCompare(rightCategory, "pt-BR") || left.name.localeCompare(right.name, "pt-BR");
-    })) {
-      const categoryName = product.category?.name ?? "Sem categoria";
-      const categoryProducts = groupedProducts.get(categoryName) ?? [];
-      categoryProducts.push(product);
-      groupedProducts.set(categoryName, categoryProducts);
-    }
-
-    const rows: Array<Record<string, string | number>> = [];
-
-    for (const [categoryName, categoryProducts] of groupedProducts.entries()) {
-      rows.push({
-        __rowType: "section",
-        __sectionTitle: categoryName,
-        productName: "",
-        sku: "",
-        category: "",
-        bases: "",
-        stockQuantity: "",
-        minimumStock: "",
-        stockStatus: "",
-        updatedAt: ""
-      });
-
-      for (const product of categoryProducts) {
-        const stockQuantity = this.resolveDisplayedStockQuantity(product, baseId);
-
-        rows.push({
-          productName: product.name,
-          sku: product.sku,
-          category: "",
-          bases: this.resolveProductBaseSummary(product, baseId),
-          stockQuantity,
-          minimumStock: product.minimumStock,
-          stockStatus: this.resolveStockHealthLabel(stockQuantity, product.minimumStock),
-          updatedAt: product.updatedAt
-        });
-      }
-    }
-
-    return rows;
+        return leftCategory.localeCompare(rightCategory, "pt-BR") || left.name.localeCompare(right.name, "pt-BR");
+      })
+      .map((product) => ({
+        productName: product.name,
+        category: product.category?.name ?? "Sem categoria",
+        stockQuantity: this.resolveDisplayedStockQuantity(product, baseId),
+        thresholds: this.resolveDisplayedThresholds(product, baseId),
+        stockStatus: this.resolveStockHealthLabel(product, baseId),
+        updatedAt: product.updatedAt
+      }));
   }
 
   private async exportReportByFormat(report: TabularReport, baseFileName: string, format: ReportFormat) {

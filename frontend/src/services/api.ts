@@ -34,6 +34,7 @@ import {
   type StockReportResponse,
   type TransferReportFilters,
   type TransferReportResponse,
+  type UpdateStockConfigurationPayload,
   type UpdateBasePayload,
   type UpdateCategoryPayload,
   type UpdateCompanyPayload,
@@ -447,6 +448,14 @@ export const api = {
         productId,
         baseId
       }
+    });
+  },
+
+  updateStockConfiguration(token: string, payload: UpdateStockConfigurationPayload) {
+    return requestJson<StockByBaseResponse>("/stock/configuration", {
+      method: "PATCH",
+      token,
+      body: payload
     });
   },
 

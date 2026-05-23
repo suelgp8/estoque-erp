@@ -62,7 +62,9 @@ const productInclude = Prisma.validator<Prisma.ProductInclude>()({
   stocks: {
     select: {
       baseId: true,
-      quantity: true
+      quantity: true,
+      minimumQuantity: true,
+      idealQuantity: true
     }
   },
   _count: {

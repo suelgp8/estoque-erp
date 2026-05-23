@@ -33,8 +33,6 @@ const editTouched = reactive({
 });
 
 const canManage = computed(() => auth.state.user?.role === "ADMIN" || auth.state.user?.role === "GESTOR");
-const isEditing = computed(() => Boolean(editForm.id));
-
 function validateName(value: string): string {
   const normalized = value.trim();
 
@@ -227,7 +225,7 @@ onMounted(async () => {
       </p>
     </article>
 
-    <section v-if="canManage" class="grid gap-6 xl:grid-cols-[1fr_1fr]">
+    <section v-if="canManage" class="grid gap-6 xl:grid-cols-[minmax(0,460px)]">
       <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.05s">
         <h2 class="font-heading text-2xl text-slate-900">Nova base</h2>
 
@@ -250,44 +248,6 @@ onMounted(async () => {
             <ion-icon name="add-circle-outline"></ion-icon>
             {{ createLoading ? "Criando..." : "Criar base" }}
           </button>
-        </form>
-      </article>
-
-      <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.1s">
-        <h2 class="font-heading text-2xl text-slate-900">Editar base</h2>
-
-        <div
-          v-if="!isEditing"
-          class="mt-5 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500"
-        >
-          Selecione uma base na tabela para editar.
-        </div>
-
-        <form v-else class="mt-5 space-y-4" @submit.prevent="handleEditBase">
-          <div>
-            <label class="erp-label">Nome da base</label>
-            <input
-              v-model="editForm.name"
-              class="erp-field"
-              :class="editTouched.name && editNameError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
-              type="text"
-              required
-              @input="editTouched.name = true"
-              @blur="editTouched.name = true"
-            />
-            <p v-if="editTouched.name && editNameError" class="mt-1 text-xs text-rose-600">{{ editNameError }}</p>
-          </div>
-
-          <div class="flex flex-wrap gap-2">
-            <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
-              <ion-icon name="save-outline"></ion-icon>
-              {{ editLoading ? "Salvando..." : "Salvar alterações" }}
-            </button>
-            <button type="button" class="erp-button-muted" @click="cancelEdit">
-              <ion-icon name="close-circle-outline"></ion-icon>
-              Cancelar
-            </button>
-          </div>
         </form>
       </article>
     </section>
@@ -315,29 +275,71 @@ onMounted(async () => {
             <tr v-else-if="bases.length === 0">
               <td colspan="4" class="text-center text-slate-500">Nenhuma base encontrada.</td>
             </tr>
-            <tr v-for="base in bases" :key="base.id">
-              <td data-label="Nome" class="font-medium text-slate-900">{{ base.name }}</td>
-              <td data-label="Criado em">{{ formatDateTime(base.createdAt) }}</td>
-              <td data-label="Atualizado em">{{ formatDateTime(base.updatedAt) }}</td>
-              <td data-label="Acoes">
-                <div v-if="canManage" class="flex flex-wrap gap-2">
-                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(base)">
-                    <ion-icon name="create-outline"></ion-icon>
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
-                    :disabled="deleteLoadingId === base.id"
-                    @click="handleDeleteBase(base)"
-                  >
-                    <ion-icon name="trash-outline"></ion-icon>
-                    {{ deleteLoadingId === base.id ? "Excluindo..." : "Excluir" }}
-                  </button>
-                </div>
-                <span v-else class="text-xs text-slate-500">Somente consulta</span>
-              </td>
-            </tr>
+            <template v-for="base in bases" :key="base.id">
+              <tr :class="editForm.id === base.id ? 'bg-slate-50/80' : ''">
+                <td data-label="Nome" class="font-medium text-slate-900">{{ base.name }}</td>
+                <td data-label="Criado em">{{ formatDateTime(base.createdAt) }}</td>
+                <td data-label="Atualizado em">{{ formatDateTime(base.updatedAt) }}</td>
+                <td data-label="Acoes">
+                  <div v-if="canManage" class="flex flex-wrap gap-2">
+                    <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(base)">
+                      <ion-icon name="create-outline"></ion-icon>
+                      {{ editForm.id === base.id ? "Editando" : "Editar" }}
+                    </button>
+                    <button
+                      type="button"
+                      class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
+                      :disabled="deleteLoadingId === base.id"
+                      @click="handleDeleteBase(base)"
+                    >
+                      <ion-icon name="trash-outline"></ion-icon>
+                      {{ deleteLoadingId === base.id ? "Excluindo..." : "Excluir" }}
+                    </button>
+                  </div>
+                  <span v-else class="text-xs text-slate-500">Somente consulta</span>
+                </td>
+              </tr>
+              <tr v-if="editForm.id === base.id" class="bg-slate-50/70">
+                <td colspan="4" class="px-4 py-4">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p class="text-sm font-semibold text-slate-900">Editar base</p>
+                        <p class="text-xs text-slate-500">Atualize os dados sem sair da lista.</p>
+                      </div>
+                      <p class="text-xs text-slate-500">Base selecionada: {{ base.name }}</p>
+                    </div>
+
+                    <form class="mt-4 space-y-4" @submit.prevent="handleEditBase">
+                      <div>
+                        <label class="erp-label">Nome da base</label>
+                        <input
+                          v-model="editForm.name"
+                          class="erp-field"
+                          :class="editTouched.name && editNameError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
+                          type="text"
+                          required
+                          @input="editTouched.name = true"
+                          @blur="editTouched.name = true"
+                        />
+                        <p v-if="editTouched.name && editNameError" class="mt-1 text-xs text-rose-600">{{ editNameError }}</p>
+                      </div>
+
+                      <div class="flex flex-wrap gap-2">
+                        <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
+                          <ion-icon name="save-outline"></ion-icon>
+                          {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
+                        </button>
+                        <button type="button" class="erp-button-muted" @click="cancelEdit">
+                          <ion-icon name="close-circle-outline"></ion-icon>
+                          Cancelar
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>

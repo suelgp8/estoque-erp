@@ -7,6 +7,7 @@ import type {
   BaseEntity,
   MovementReportResponse,
   ProductEntity,
+  StockStatus as ApiStockStatus,
   StockMovementStatus,
   TransferReportResponse
 } from "../../types/api";
@@ -34,7 +35,7 @@ type TodoItem = {
   buttonLabel: string;
   tone: string;
 };
-type StockStatus = "zero" | "low" | "good";
+type DashboardStockState = "zero" | "critical" | "warning" | "good";
 type DashboardStockRow = {
   productId: string;
   productName: string;
@@ -44,8 +45,9 @@ type DashboardStockRow = {
   base: string;
   quantity: number;
   updatedAt: string;
-  minimumStock: number;
-  status: StockStatus;
+  minimumQuantity: number;
+  idealQuantity: number;
+  alertState: DashboardStockState;
   statusLabel: string;
   gap: number;
 };
@@ -55,7 +57,8 @@ type BaseHealthEntry = {
   quantity: number;
   monitored: number;
   zeroCount: number;
-  lowCount: number;
+  criticalCount: number;
+  warningCount: number;
   alertCount: number;
   percent: number;
 };
@@ -129,12 +132,60 @@ function formatDayLabel(date: Date): string {
   }).format(date);
 }
 
-function resolveStockTone(status: StockStatus): string {
+function resolveDashboardStockState(quantity: number, status: ApiStockStatus): DashboardStockState {
+  if (quantity <= 0) {
+    return "zero";
+  }
+
+  if (status === "CRITICAL") {
+    return "critical";
+  }
+
+  if (status === "WARNING") {
+    return "warning";
+  }
+
+  return "good";
+}
+
+function resolveDashboardStockLabel(status: DashboardStockState): string {
   if (status === "zero") {
+    return "Estoque zerado";
+  }
+
+  if (status === "critical") {
+    return "Abaixo do minimo";
+  }
+
+  if (status === "warning") {
+    return "Abaixo do ideal";
+  }
+
+  return "Dentro da meta";
+}
+
+function resolveDashboardStockPriority(status: DashboardStockState): number {
+  if (status === "zero") {
+    return 0;
+  }
+
+  if (status === "critical") {
+    return 1;
+  }
+
+  if (status === "warning") {
+    return 2;
+  }
+
+  return 3;
+}
+
+function resolveStockTone(status: DashboardStockState): string {
+  if (status === "zero" || status === "critical") {
     return "border-rose-200 bg-rose-50 text-rose-700";
   }
 
-  if (status === "low") {
+  if (status === "warning") {
     return "border-amber-200 bg-amber-50 text-amber-700";
   }
 
@@ -232,6 +283,7 @@ function setPeriod(value: PeriodPreset) {
 }
 
 const authUser = computed(() => auth.state.user);
+const accessibleBaseIds = computed(() => new Set(knownBases.value.map((base) => base.id)));
 const selectedBaseLabel = computed(
   () => knownBases.value.find((base) => base.id === selectedBaseId.value)?.name ?? "Todas as bases"
 );
@@ -242,20 +294,24 @@ const movementRows = computed(() => movementsReport.value?.rows ?? []);
 const transferRows = computed(() => transfersReport.value?.rows ?? []);
 const visibleProductsByBase = computed(() =>
   knownProducts.value.filter((product) =>
-    !selectedBaseId.value || product.allowedBases.some((base) => base.id === selectedBaseId.value)
+    product.allowedBases.some((base) =>
+      accessibleBaseIds.value.has(base.id) && (!selectedBaseId.value || base.id === selectedBaseId.value)
+    )
   )
 );
 
 const stockRowsDetailed = computed<DashboardStockRow[]>(() =>
   visibleProductsByBase.value.flatMap((product) => {
     const basesToRender = product.allowedBases.filter((base) =>
-      !selectedBaseId.value || base.id === selectedBaseId.value
+      accessibleBaseIds.value.has(base.id) && (!selectedBaseId.value || base.id === selectedBaseId.value)
     );
 
     return basesToRender.map((base) => {
-      const quantity = product.stockByBase.find((stock) => stock.baseId === base.id)?.quantity ?? 0;
-      const status: StockStatus =
-        quantity <= 0 ? "zero" : product.minimumStock > 0 && quantity <= product.minimumStock ? "low" : "good";
+      const stockSnapshot = product.stockByBase.find((stock) => stock.baseId === base.id);
+      const quantity = stockSnapshot?.quantity ?? 0;
+      const minimumQuantity = stockSnapshot?.minimumQuantity ?? 0;
+      const idealQuantity = stockSnapshot?.idealQuantity ?? 0;
+      const alertState = resolveDashboardStockState(quantity, stockSnapshot?.status ?? "HEALTHY");
 
       return {
         productId: product.id,
@@ -266,10 +322,11 @@ const stockRowsDetailed = computed<DashboardStockRow[]>(() =>
         base: base.name,
         quantity,
         updatedAt: product.updatedAt,
-        minimumStock: product.minimumStock,
-        status,
-        statusLabel: status === "zero" ? "Estoque zerado" : status === "low" ? "Estoque baixo" : "Estoque bom",
-        gap: Math.max(0, product.minimumStock - quantity)
+        minimumQuantity,
+        idealQuantity,
+        alertState,
+        statusLabel: resolveDashboardStockLabel(alertState),
+        gap: Math.max(0, (stockSnapshot?.status === "WARNING" ? idealQuantity : minimumQuantity) - quantity)
       };
     });
   })
@@ -278,15 +335,19 @@ const stockRowsDetailed = computed<DashboardStockRow[]>(() =>
 const totalStockQuantity = computed(() => stockRowsDetailed.value.reduce((total, row) => total + row.quantity, 0));
 const totalStockRows = computed(() => stockRowsDetailed.value.length);
 const monitoredProductsCount = computed(() => visibleProductsByBase.value.length);
-const zeroStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.status === "zero").length);
-const lowStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.status === "low").length);
-const criticalAlertCount = computed(() => zeroStockCount.value + lowStockCount.value);
+const zeroStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.alertState === "zero").length);
+const criticalStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.alertState === "critical").length);
+const warningStockCount = computed(() => stockRowsDetailed.value.filter((row) => row.alertState === "warning").length);
+const criticalAlertCount = computed(() => zeroStockCount.value + criticalStockCount.value + warningStockCount.value);
 const criticalStockRows = computed(() =>
   [...stockRowsDetailed.value]
-    .filter((row) => row.status !== "good")
+    .filter((row) => row.alertState !== "good")
     .sort((left, right) => {
-      if (left.status !== right.status) {
-        return left.status === "zero" ? -1 : 1;
+      const leftPriority = resolveDashboardStockPriority(left.alertState);
+      const rightPriority = resolveDashboardStockPriority(right.alertState);
+
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
       }
 
       if (left.gap !== right.gap) {
@@ -373,7 +434,7 @@ const kpiCards = computed<DashboardCard[]>(() => [
 const todoItems = computed<TodoItem[]>(() => [
   {
     label: "Repor produtos criticos",
-    helper: "Itens zerados ou abaixo do minimo precisam de acompanhamento",
+    helper: "Itens zerados, abaixo do minimo ou abaixo do ideal precisam de acompanhamento",
     count: criticalStockRows.value.length,
     to: "/app/products",
     buttonLabel: "Ver produtos",
@@ -432,13 +493,16 @@ const stockByBaseHealth = computed<BaseHealthEntry[]>(() => {
     if (existing) {
       existing.quantity += row.quantity;
       existing.monitored += 1;
-      if (row.status === "zero") {
+      if (row.alertState === "zero") {
         existing.zeroCount += 1;
       }
-      if (row.status === "low") {
-        existing.lowCount += 1;
+      if (row.alertState === "critical") {
+        existing.criticalCount += 1;
       }
-      existing.alertCount = existing.zeroCount + existing.lowCount;
+      if (row.alertState === "warning") {
+        existing.warningCount += 1;
+      }
+      existing.alertCount = existing.zeroCount + existing.criticalCount + existing.warningCount;
       continue;
     }
 
@@ -447,9 +511,10 @@ const stockByBaseHealth = computed<BaseHealthEntry[]>(() => {
       base: row.base,
       quantity: row.quantity,
       monitored: 1,
-      zeroCount: row.status === "zero" ? 1 : 0,
-      lowCount: row.status === "low" ? 1 : 0,
-      alertCount: row.status === "good" ? 0 : 1,
+      zeroCount: row.alertState === "zero" ? 1 : 0,
+      criticalCount: row.alertState === "critical" ? 1 : 0,
+      warningCount: row.alertState === "warning" ? 1 : 0,
+      alertCount: row.alertState === "good" ? 0 : 1,
       percent: 0
     });
   }
@@ -487,7 +552,10 @@ const priorityCards = computed<DashboardCard[]>(() => [
   {
     label: "Estoque critico",
     value: formatNumber(criticalAlertCount.value),
-    helper: `${formatNumber(zeroStockCount.value)} zerados | ${formatNumber(lowStockCount.value)} abaixo do minimo`,
+    helper:
+      `${formatNumber(zeroStockCount.value)} zerados | ` +
+      `${formatNumber(criticalStockCount.value)} abaixo do minimo | ` +
+      `${formatNumber(warningStockCount.value)} abaixo do ideal`,
     tone: criticalAlertCount.value > 0 ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
   },
   {
@@ -810,7 +878,7 @@ onMounted(async () => {
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 class="font-heading text-xl text-slate-900">Produtos criticos</h2>
-            <p class="mt-1 text-sm text-slate-500">Zerados ou abaixo do minimo por base.</p>
+            <p class="mt-1 text-sm text-slate-500">Zerados, abaixo do minimo ou abaixo do ideal por base.</p>
           </div>
           <RouterLink to="/app/products" class="erp-button-muted text-sm">Abrir produtos</RouterLink>
         </div>
@@ -823,12 +891,13 @@ onMounted(async () => {
                 <th>Base</th>
                 <th>Atual</th>
                 <th>Minimo</th>
+                <th>Ideal</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="criticalProductsPreview.length === 0">
-                <td colspan="5" class="text-center text-slate-500">Nenhum item critico encontrado.</td>
+                <td colspan="6" class="text-center text-slate-500">Nenhum item critico encontrado.</td>
               </tr>
               <tr v-for="row in criticalProductsPreview" :key="`${row.productId}-${row.baseId}`">
                 <td data-label="Produto" class="font-medium text-slate-900">
@@ -837,9 +906,10 @@ onMounted(async () => {
                 </td>
                 <td data-label="Base">{{ row.base }}</td>
                 <td data-label="Atual">{{ formatNumber(row.quantity) }}</td>
-                <td data-label="Minimo">{{ formatNumber(row.minimumStock) }}</td>
+                <td data-label="Minimo">{{ formatNumber(row.minimumQuantity) }}</td>
+                <td data-label="Ideal">{{ formatNumber(row.idealQuantity) }}</td>
                 <td data-label="Status">
-                  <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="resolveStockTone(row.status)">
+                  <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="resolveStockTone(row.alertState)">
                     {{ row.statusLabel }}
                   </span>
                 </td>
@@ -882,8 +952,11 @@ onMounted(async () => {
               <span class="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-rose-700">
                 Zerados {{ formatNumber(entry.zeroCount) }}
               </span>
+              <span class="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-rose-700">
+                Minimo {{ formatNumber(entry.criticalCount) }}
+              </span>
               <span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700">
-                Baixo {{ formatNumber(entry.lowCount) }}
+                Ideal {{ formatNumber(entry.warningCount) }}
               </span>
             </div>
           </article>

@@ -45,7 +45,6 @@ const editTouched = reactive({
 
 const canManage = computed(() => auth.state.user?.role === "ADMIN" || auth.state.user?.role === "GESTOR");
 const isAdmin = computed(() => auth.state.user?.role === "ADMIN");
-const isEditing = computed(() => Boolean(editForm.id));
 const accessibleBaseIds = computed(() => new Set((auth.state.user?.allowedBases ?? []).map((base) => base.id)));
 const visibleCategories = computed(() => {
   if (isAdmin.value) {
@@ -420,7 +419,7 @@ watch(selectedListBaseId, () => {
       </p>
     </article>
 
-    <section v-if="canManage" class="grid gap-6 xl:grid-cols-[1fr_1fr]">
+    <section v-if="canManage" class="grid gap-6 xl:grid-cols-[minmax(0,520px)]">
       <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.05s">
         <h2 class="font-heading text-2xl text-slate-900">Nova categoria</h2>
 
@@ -523,122 +522,6 @@ watch(selectedListBaseId, () => {
           </button>
         </form>
       </article>
-
-      <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.1s">
-        <h2 class="font-heading text-2xl text-slate-900">Editar categoria</h2>
-
-        <div
-          v-if="!isEditing"
-          class="mt-5 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500"
-        >
-          Selecione uma categoria na tabela para editar.
-        </div>
-
-        <form v-else class="mt-5 space-y-4" @submit.prevent="handleEditCategory">
-          <div>
-            <label class="erp-label">Nome</label>
-            <input
-              v-model="editForm.name"
-              class="erp-field"
-              :class="editTouched.name && editNameError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
-              type="text"
-              required
-              @input="editTouched.name = true"
-              @blur="editTouched.name = true"
-            />
-            <p v-if="editTouched.name && editNameError" class="mt-1 text-xs text-rose-600">{{ editNameError }}</p>
-          </div>
-
-          <div>
-            <label class="erp-label">Descricao (opcional)</label>
-            <textarea
-              v-model="editForm.description"
-              class="min-h-[92px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
-              maxlength="255"
-              @input="editTouched.description = true"
-              @blur="editTouched.description = true"
-            />
-            <p v-if="editTouched.description && editDescriptionError" class="mt-1 text-xs text-rose-600">
-              {{ editDescriptionError }}
-            </p>
-          </div>
-
-          <div class="space-y-3">
-            <label class="erp-label">Bases vinculadas</label>
-
-            <div
-              v-if="bases.length === 0"
-              class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-            >
-              Cadastre ao menos uma base antes de usar este cadastro.
-            </div>
-
-            <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <p class="text-sm font-medium text-slate-700">Selecione as bases permitidas para esta categoria.</p>
-                <div class="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    class="erp-button-muted px-3 py-1.5 text-xs"
-                    @click="
-                      selectAllBases(editForm);
-                      editTouched.allowedBases = true;
-                    "
-                  >
-                    <ion-icon name="checkmark-done-outline"></ion-icon>
-                    Marcar todas
-                  </button>
-                  <button
-                    type="button"
-                    class="erp-button-muted px-3 py-1.5 text-xs"
-                    @click="
-                      clearBaseSelection(editForm);
-                      editTouched.allowedBases = true;
-                    "
-                  >
-                    <ion-icon name="close-outline"></ion-icon>
-                    Limpar
-                  </button>
-                </div>
-              </div>
-
-              <div class="mt-3 grid gap-2">
-                <label
-                  v-for="base in bases"
-                  :key="`edit-${base.id}`"
-                  class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                >
-                  <input
-                    class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                    type="checkbox"
-                    :checked="editForm.allowedBaseIds.includes(base.id)"
-                    @change="
-                      toggleBaseSelection(editForm, base.id);
-                      editTouched.allowedBases = true;
-                    "
-                  />
-                  <span>{{ base.name }}</span>
-                </label>
-              </div>
-            </div>
-
-            <p v-if="editTouched.allowedBases && editAllowedBasesError" class="text-xs text-rose-600">
-              {{ editAllowedBasesError }}
-            </p>
-          </div>
-
-          <div class="flex flex-wrap gap-2">
-            <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
-              <ion-icon name="save-outline"></ion-icon>
-              {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
-            </button>
-            <button type="button" class="erp-button-muted" @click="cancelEdit">
-              <ion-icon name="close-circle-outline"></ion-icon>
-              Cancelar
-            </button>
-          </div>
-        </form>
-      </article>
     </section>
 
     <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.14s">
@@ -681,40 +564,162 @@ watch(selectedListBaseId, () => {
                 {{ selectedListBaseName ? "Nenhuma categoria vinculada a esta base." : "Nenhuma categoria encontrada." }}
               </td>
             </tr>
-            <tr v-for="category in filteredCategories" :key="category.id">
-              <td data-label="Nome" class="font-medium text-slate-900">{{ category.name }}</td>
-              <td data-label="Descricao" class="max-w-[320px]" :title="category.description ?? '-'">{{ category.description ?? "-" }}</td>
-              <td data-label="Bases">
-                <span class="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                  {{ resolveCategoryBaseSummary(category) }}
-                </span>
-              </td>
-              <td data-label="Produtos">
-                <span class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800">
-                  {{ category.productsCount }}
-                </span>
-              </td>
-              <td data-label="Atualizado em">{{ formatDateTime(category.updatedAt) }}</td>
-              <td data-label="Acoes">
-                <div v-if="canManageCategoryItem(category)" class="flex flex-wrap gap-2">
-                  <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(category)">
-                    <ion-icon name="create-outline"></ion-icon>
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
-                    :disabled="deleteLoadingId === category.id"
-                    @click="handleDeleteCategory(category)"
-                  >
-                    <ion-icon name="trash-outline"></ion-icon>
-                    {{ deleteLoadingId === category.id ? "Excluindo..." : "Excluir" }}
-                  </button>
-                </div>
-                <span v-else-if="canManage" class="text-xs text-amber-700">Acesso parcial</span>
-                <span v-else class="text-xs text-slate-500">Somente consulta</span>
-              </td>
-            </tr>
+            <template v-for="category in filteredCategories" :key="category.id">
+              <tr :class="editForm.id === category.id ? 'bg-slate-50/80' : ''">
+                <td data-label="Nome" class="font-medium text-slate-900">{{ category.name }}</td>
+                <td data-label="Descricao" class="max-w-[320px]" :title="category.description ?? '-'">{{ category.description ?? "-" }}</td>
+                <td data-label="Bases">
+                  <span class="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                    {{ resolveCategoryBaseSummary(category) }}
+                  </span>
+                </td>
+                <td data-label="Produtos">
+                  <span class="inline-flex rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800">
+                    {{ category.productsCount }}
+                  </span>
+                </td>
+                <td data-label="Atualizado em">{{ formatDateTime(category.updatedAt) }}</td>
+                <td data-label="Acoes">
+                  <div v-if="canManageCategoryItem(category)" class="flex flex-wrap gap-2">
+                    <button type="button" class="erp-button-muted px-3 py-1.5 text-xs" @click="startEdit(category)">
+                      <ion-icon name="create-outline"></ion-icon>
+                      {{ editForm.id === category.id ? "Editando" : "Editar" }}
+                    </button>
+                    <button
+                      type="button"
+                      class="erp-button-muted border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-rose-50"
+                      :disabled="deleteLoadingId === category.id"
+                      @click="handleDeleteCategory(category)"
+                    >
+                      <ion-icon name="trash-outline"></ion-icon>
+                      {{ deleteLoadingId === category.id ? "Excluindo..." : "Excluir" }}
+                    </button>
+                  </div>
+                  <span v-else-if="canManage" class="text-xs text-amber-700">Acesso parcial</span>
+                  <span v-else class="text-xs text-slate-500">Somente consulta</span>
+                </td>
+              </tr>
+              <tr v-if="editForm.id === category.id" class="bg-slate-50/70">
+                <td colspan="6" class="px-4 py-4">
+                  <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                    <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p class="text-sm font-semibold text-slate-900">Editar categoria</p>
+                        <p class="text-xs text-slate-500">Ajuste o cadastro sem precisar voltar ao topo.</p>
+                      </div>
+                      <p class="text-xs text-slate-500">
+                        {{ selectedListBaseName ? `Filtro atual: ${selectedListBaseName}` : "Exibindo todas as bases vinculadas" }}
+                      </p>
+                    </div>
+
+                    <form class="mt-4 space-y-4" @submit.prevent="handleEditCategory">
+                      <div>
+                        <label class="erp-label">Nome</label>
+                        <input
+                          v-model="editForm.name"
+                          class="erp-field"
+                          :class="editTouched.name && editNameError ? 'border-rose-300 focus:border-rose-500 focus:ring-rose-200' : ''"
+                          type="text"
+                          required
+                          @input="editTouched.name = true"
+                          @blur="editTouched.name = true"
+                        />
+                        <p v-if="editTouched.name && editNameError" class="mt-1 text-xs text-rose-600">{{ editNameError }}</p>
+                      </div>
+
+                      <div>
+                        <label class="erp-label">Descricao (opcional)</label>
+                        <textarea
+                          v-model="editForm.description"
+                          class="min-h-[92px] w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                          maxlength="255"
+                          @input="editTouched.description = true"
+                          @blur="editTouched.description = true"
+                        />
+                        <p v-if="editTouched.description && editDescriptionError" class="mt-1 text-xs text-rose-600">
+                          {{ editDescriptionError }}
+                        </p>
+                      </div>
+
+                      <div class="space-y-3">
+                        <label class="erp-label">Bases vinculadas</label>
+
+                        <div
+                          v-if="bases.length === 0"
+                          class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                        >
+                          Cadastre ao menos uma base antes de usar este cadastro.
+                        </div>
+
+                        <div v-else class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                          <div class="flex flex-wrap items-center justify-between gap-2">
+                            <p class="text-sm font-medium text-slate-700">Selecione as bases permitidas para esta categoria.</p>
+                            <div class="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                class="erp-button-muted px-3 py-1.5 text-xs"
+                                @click="
+                                  selectAllBases(editForm);
+                                  editTouched.allowedBases = true;
+                                "
+                              >
+                                <ion-icon name="checkmark-done-outline"></ion-icon>
+                                Marcar todas
+                              </button>
+                              <button
+                                type="button"
+                                class="erp-button-muted px-3 py-1.5 text-xs"
+                                @click="
+                                  clearBaseSelection(editForm);
+                                  editTouched.allowedBases = true;
+                                "
+                              >
+                                <ion-icon name="close-outline"></ion-icon>
+                                Limpar
+                              </button>
+                            </div>
+                          </div>
+
+                          <div class="mt-3 grid gap-2">
+                            <label
+                              v-for="base in bases"
+                              :key="`edit-inline-${category.id}-${base.id}`"
+                              class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                            >
+                              <input
+                                class="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                type="checkbox"
+                                :checked="editForm.allowedBaseIds.includes(base.id)"
+                                @change="
+                                  toggleBaseSelection(editForm, base.id);
+                                  editTouched.allowedBases = true;
+                                "
+                              />
+                              <span>{{ base.name }}</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <p v-if="editTouched.allowedBases && editAllowedBasesError" class="text-xs text-rose-600">
+                          {{ editAllowedBasesError }}
+                        </p>
+                      </div>
+
+                      <div class="flex flex-wrap gap-2">
+                        <button type="submit" class="erp-button-primary" :disabled="editLoading || !editFormValid">
+                          <ion-icon name="save-outline"></ion-icon>
+                          {{ editLoading ? "Salvando..." : "Salvar alteracoes" }}
+                        </button>
+                        <button type="button" class="erp-button-muted" @click="cancelEdit">
+                          <ion-icon name="close-circle-outline"></ion-icon>
+                          Cancelar
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>

@@ -10,6 +10,7 @@ import type {
   MovementReportResponse,
   ProductEntity,
   ReportFormat,
+  StockStatus as ApiStockStatus,
   StockMovementStatus,
   StockMovementType,
   StockReportFilters,
@@ -23,9 +24,9 @@ type ReportTab = "general" | "stock" | "movements" | "transfers" | "alerts";
 type InsightTone = "slate" | "sky" | "emerald" | "amber" | "rose" | "cyan";
 type SummaryCard = { label: string; value: string; helper: string; tone: string };
 type InsightItem = { label: string; value: number; displayValue: string; helper?: string; tone?: InsightTone };
+type StockAlertState = "zero" | "critical" | "warning" | "good";
 type StockViewRow = StockReportResponse["rows"][number] & {
-  minimumStock: number;
-  status: "zero" | "low" | "good";
+  alertState: StockAlertState;
   statusLabel: string;
   gap: number;
 };
@@ -77,10 +78,56 @@ const statusOptions: Array<{ label: string; value: "" | StockMovementStatus }> =
   { label: "Estornado", value: "REVERSED" }
 ];
 
+function resolveStockAlertState(quantity: number, status: ApiStockStatus): StockAlertState {
+  if (quantity <= 0) {
+    return "zero";
+  }
+
+  if (status === "CRITICAL") {
+    return "critical";
+  }
+
+  if (status === "WARNING") {
+    return "warning";
+  }
+
+  return "good";
+}
+
+function resolveStockAlertLabel(state: StockAlertState): string {
+  if (state === "zero") {
+    return "Estoque zerado";
+  }
+
+  if (state === "critical") {
+    return "Abaixo do minimo";
+  }
+
+  if (state === "warning") {
+    return "Abaixo do ideal";
+  }
+
+  return "Dentro da meta";
+}
+
+function resolveStockGap(quantity: number, minimumQuantity: number, idealQuantity: number, status: ApiStockStatus): number {
+  if (status === "WARNING") {
+    return Math.max(0, idealQuantity - quantity);
+  }
+
+  return Math.max(0, minimumQuantity - quantity);
+}
+
+function resolveStockAlertPriority(state: StockAlertState): number {
+  if (state === "zero") return 0;
+  if (state === "critical") return 1;
+  if (state === "warning") return 2;
+  return 3;
+}
+
 const canExportActiveTab = computed(
   () => activeTab.value === "stock" || activeTab.value === "movements" || activeTab.value === "transfers"
 );
-const productIndex = computed(() => new Map(knownProducts.value.map((product) => [product.id, product])));
 
 const stockRows = computed(() => stockReport.value?.rows ?? []);
 const movementRows = computed(() => movementsReport.value?.rows ?? []);
@@ -88,26 +135,26 @@ const transferRows = computed(() => transfersReport.value?.rows ?? []);
 
 const stockRowsDetailed = computed<StockViewRow[]>(() =>
   stockRows.value.map((row) => {
-    const product = productIndex.value.get(row.productId);
-    const minimumStock = product?.minimumStock ?? 0;
-    const status = row.quantity <= 0 ? "zero" : minimumStock > 0 && row.quantity <= minimumStock ? "low" : "good";
+    const alertState = resolveStockAlertState(row.quantity, row.status);
 
     return {
       ...row,
-      minimumStock,
-      status,
-      statusLabel: status === "zero" ? "Estoque zerado" : status === "low" ? "Estoque baixo" : "Estoque bom",
-      gap: Math.max(0, minimumStock - row.quantity)
+      alertState,
+      statusLabel: resolveStockAlertLabel(alertState),
+      gap: resolveStockGap(row.quantity, row.minimumQuantity, row.idealQuantity, row.status)
     };
   })
 );
 
 const criticalStockRows = computed(() =>
   [...stockRowsDetailed.value]
-    .filter((row) => row.status !== "good")
+    .filter((row) => row.alertState !== "good")
     .sort((left, right) => {
-      if (left.status !== right.status) {
-        return left.status === "zero" ? -1 : 1;
+      const leftPriority = resolveStockAlertPriority(left.alertState);
+      const rightPriority = resolveStockAlertPriority(right.alertState);
+
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
       }
 
       if (left.gap !== right.gap) {
@@ -132,9 +179,10 @@ const agedPendingTransfers = computed(() =>
 const stockSummary = computed(() => ({
   rows: stockRowsDetailed.value.length,
   totalQuantity: stockRowsDetailed.value.reduce((total, row) => total + row.quantity, 0),
-  zeroCount: stockRowsDetailed.value.filter((row) => row.status === "zero").length,
-  lowCount: stockRowsDetailed.value.filter((row) => row.status === "low").length,
-  goodCount: stockRowsDetailed.value.filter((row) => row.status === "good").length,
+  zeroCount: stockRowsDetailed.value.filter((row) => row.alertState === "zero").length,
+  criticalCount: stockRowsDetailed.value.filter((row) => row.alertState === "critical").length,
+  warningCount: stockRowsDetailed.value.filter((row) => row.alertState === "warning").length,
+  goodCount: stockRowsDetailed.value.filter((row) => row.alertState === "good").length,
   productCount: new Set(stockRowsDetailed.value.map((row) => row.productId)).size
 }));
 
@@ -158,7 +206,8 @@ const transferSummary = computed(() => ({
 const generalCards = computed<SummaryCard[]>(() => [
   { label: "Estoque total", value: formatNumber(stockSummary.value.totalQuantity), helper: "Saldo agregado nas bases filtradas", tone: "border-sky-200 bg-sky-50 text-sky-700" },
   { label: "Produtos zerados", value: formatNumber(stockSummary.value.zeroCount), helper: "Itens sem saldo disponivel", tone: "border-rose-200 bg-rose-50 text-rose-700" },
-  { label: "Abaixo do minimo", value: formatNumber(stockSummary.value.lowCount), helper: "Itens em estado de alerta", tone: "border-amber-200 bg-amber-50 text-amber-700" },
+  { label: "Abaixo do minimo", value: formatNumber(stockSummary.value.criticalCount), helper: "Itens em estado critico", tone: "border-rose-200 bg-rose-50 text-rose-700" },
+  { label: "Abaixo do ideal", value: formatNumber(stockSummary.value.warningCount), helper: "Itens em estado de atencao", tone: "border-amber-200 bg-amber-50 text-amber-700" },
   { label: "Movimentacoes", value: formatNumber(movementSummary.value.rows), helper: "Registros no periodo filtrado", tone: "border-slate-200 bg-slate-50 text-slate-700" },
   { label: "Transferencias abertas", value: formatNumber(transferSummary.value.openCount), helper: "Pendentes ou aprovadas", tone: "border-amber-200 bg-amber-50 text-amber-700" },
   { label: "Produtos analisados", value: formatNumber(stockSummary.value.productCount), helper: "Itens unicos no estoque filtrado", tone: "border-slate-200 bg-slate-50 text-slate-700" }
@@ -168,7 +217,8 @@ const stockCards = computed<SummaryCard[]>(() => [
   { label: "Linhas retornadas", value: formatNumber(stockSummary.value.rows), helper: "Produtos por base no resultado", tone: "border-slate-200 bg-slate-50 text-slate-700" },
   { label: "Quantidade total", value: formatNumber(stockSummary.value.totalQuantity), helper: "Saldo acumulado do filtro", tone: "border-sky-200 bg-sky-50 text-sky-700" },
   { label: "Zerados", value: formatNumber(stockSummary.value.zeroCount), helper: "Precisam de reposicao", tone: "border-rose-200 bg-rose-50 text-rose-700" },
-  { label: "Abaixo do minimo", value: formatNumber(stockSummary.value.lowCount), helper: "Produtos em alerta", tone: "border-amber-200 bg-amber-50 text-amber-700" }
+  { label: "Abaixo do minimo", value: formatNumber(stockSummary.value.criticalCount), helper: "Produtos em estado critico", tone: "border-rose-200 bg-rose-50 text-rose-700" },
+  { label: "Abaixo do ideal", value: formatNumber(stockSummary.value.warningCount), helper: "Produtos em atencao", tone: "border-amber-200 bg-amber-50 text-amber-700" }
 ]);
 
 const movementCards = computed<SummaryCard[]>(() => [
@@ -186,9 +236,10 @@ const transferCards = computed<SummaryCard[]>(() => [
 ]);
 
 const alertCards = computed<SummaryCard[]>(() => [
-  { label: "Alertas de estoque", value: formatNumber(criticalStockRows.value.length), helper: "Zerados ou abaixo do minimo", tone: "border-rose-200 bg-rose-50 text-rose-700" },
+  { label: "Alertas de estoque", value: formatNumber(criticalStockRows.value.length), helper: "Zerados, abaixo do minimo ou abaixo do ideal", tone: "border-rose-200 bg-rose-50 text-rose-700" },
   { label: "Produtos zerados", value: formatNumber(stockSummary.value.zeroCount), helper: "Itens sem saldo", tone: "border-rose-200 bg-rose-50 text-rose-700" },
-  { label: "Abaixo do minimo", value: formatNumber(stockSummary.value.lowCount), helper: "Itens abaixo da referencia", tone: "border-amber-200 bg-amber-50 text-amber-700" },
+  { label: "Abaixo do minimo", value: formatNumber(stockSummary.value.criticalCount), helper: "Itens fora da referencia minima", tone: "border-rose-200 bg-rose-50 text-rose-700" },
+  { label: "Abaixo do ideal", value: formatNumber(stockSummary.value.warningCount), helper: "Itens abaixo da meta ideal", tone: "border-amber-200 bg-amber-50 text-amber-700" },
   { label: "Transferencias envelhecidas", value: formatNumber(agedPendingTransfers.value.length), helper: "Pendentes ha 2 dias ou mais", tone: "border-amber-200 bg-amber-50 text-amber-700" }
 ]);
 
@@ -204,10 +255,10 @@ const stockByBaseInsights = computed(() => buildGroupedInsights(stockRowsDetaile
 const criticalStockInsights = computed(() =>
   criticalStockRows.value.slice(0, 6).map((row) => ({
     label: row.productName,
-    value: row.status === "zero" ? Math.max(row.minimumStock, 1) : Math.max(row.gap, 1),
+    value: row.alertState === "zero" ? Math.max(row.minimumQuantity, row.idealQuantity, 1) : Math.max(row.gap, 1),
     displayValue: `${formatNumber(row.quantity)} un.`,
-    helper: `${row.base} | min ${formatNumber(row.minimumStock)}`,
-    tone: row.status === "zero" ? "rose" : "amber"
+    helper: `${row.base} | min ${formatNumber(row.minimumQuantity)} | ideal ${formatNumber(row.idealQuantity)}`,
+    tone: row.alertState === "warning" ? "amber" : "rose"
   }))
 );
 const movementStatusInsights = computed(() =>
@@ -469,9 +520,9 @@ function getAgeInDays(value: string): number {
   return Math.max(0, Math.floor((Date.now() - parsed.getTime()) / (1000 * 60 * 60 * 24)));
 }
 
-function resolveStockTone(status: StockViewRow["status"]): string {
-  if (status === "zero") return "border-rose-200 bg-rose-50 text-rose-700";
-  if (status === "low") return "border-amber-200 bg-amber-50 text-amber-700";
+function resolveStockTone(status: StockViewRow["alertState"]): string {
+  if (status === "zero" || status === "critical") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (status === "warning") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
@@ -830,7 +881,7 @@ onMounted(async () => {
 
         <article class="erp-surface p-5">
           <h3 class="font-heading text-lg text-slate-900">Produtos em alerta</h3>
-          <p class="mt-1 text-sm text-slate-500">Itens zerados ou abaixo do minimo.</p>
+          <p class="mt-1 text-sm text-slate-500">Itens zerados, abaixo do minimo ou abaixo do ideal.</p>
 
           <div v-if="criticalStockInsights.length > 0" class="mt-4 space-y-3">
             <div
@@ -865,16 +916,17 @@ onMounted(async () => {
                 <th>Base</th>
                 <th>Estoque atual</th>
                 <th>Minimo</th>
+                <th>Ideal</th>
                 <th>Status</th>
                 <th>Atualizado em</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="loading">
-                <td colspan="8" class="text-center text-slate-500">Carregando...</td>
+                <td colspan="9" class="text-center text-slate-500">Carregando...</td>
               </tr>
               <tr v-else-if="stockRowsDetailed.length === 0">
-                <td colspan="8" class="text-center text-slate-500">Nenhum registro encontrado.</td>
+                <td colspan="9" class="text-center text-slate-500">Nenhum registro encontrado.</td>
               </tr>
               <tr v-for="row in stockRowsDetailed" :key="`${row.productId}-${row.baseId}`">
                 <td data-label="Produto" class="font-medium text-slate-900">{{ row.productName }}</td>
@@ -882,9 +934,10 @@ onMounted(async () => {
                 <td data-label="Categoria">{{ row.category }}</td>
                 <td data-label="Base">{{ row.base }}</td>
                 <td data-label="Estoque atual">{{ formatNumber(row.quantity) }}</td>
-                <td data-label="Minimo">{{ formatNumber(row.minimumStock) }}</td>
+                <td data-label="Minimo">{{ formatNumber(row.minimumQuantity) }}</td>
+                <td data-label="Ideal">{{ formatNumber(row.idealQuantity) }}</td>
                 <td data-label="Status">
-                  <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="resolveStockTone(row.status)">
+                  <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="resolveStockTone(row.alertState)">
                     {{ row.statusLabel }}
                   </span>
                 </td>
@@ -1114,25 +1167,27 @@ onMounted(async () => {
                 <th>Base</th>
                 <th>Estoque atual</th>
                 <th>Minimo</th>
+                <th>Ideal</th>
                 <th>Status</th>
                 <th>Atualizado em</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="loading">
-                <td colspan="7" class="text-center text-slate-500">Carregando...</td>
+                <td colspan="8" class="text-center text-slate-500">Carregando...</td>
               </tr>
               <tr v-else-if="criticalStockRows.length === 0">
-                <td colspan="7" class="text-center text-slate-500">Nenhum alerta encontrado.</td>
+                <td colspan="8" class="text-center text-slate-500">Nenhum alerta encontrado.</td>
               </tr>
               <tr v-for="row in criticalStockRows" :key="`${row.productId}-${row.baseId}`">
                 <td data-label="Produto" class="font-medium text-slate-900">{{ row.productName }}</td>
                 <td data-label="SKU">{{ row.sku }}</td>
                 <td data-label="Base">{{ row.base }}</td>
                 <td data-label="Estoque atual">{{ formatNumber(row.quantity) }}</td>
-                <td data-label="Minimo">{{ formatNumber(row.minimumStock) }}</td>
+                <td data-label="Minimo">{{ formatNumber(row.minimumQuantity) }}</td>
+                <td data-label="Ideal">{{ formatNumber(row.idealQuantity) }}</td>
                 <td data-label="Status">
-                  <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="resolveStockTone(row.status)">
+                  <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="resolveStockTone(row.alertState)">
                     {{ row.statusLabel }}
                   </span>
                 </td>

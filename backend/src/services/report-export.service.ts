@@ -18,6 +18,7 @@ export type TabularReport = {
     header: string;
     key: string;
     width?: number;
+    align?: "left" | "center" | "right";
   }>;
   rows: TabularReportRow[];
 };
@@ -66,14 +67,17 @@ function resolveStatusTone(value: string): "ok" | "warn" | "danger" | "neutral" 
 
   if (
     normalized.includes("bom") ||
+    normalized.includes("saud") ||
     normalized.includes("ok") ||
-    normalized.includes("conclu")
+    normalized.includes("conclu") ||
+    normalized.includes("meta")
   ) {
     return "ok";
   }
 
   if (
     normalized.includes("baixo") ||
+    normalized.includes("atenc") ||
     normalized.includes("pendente") ||
     normalized.includes("aprovad")
   ) {
@@ -82,6 +86,7 @@ function resolveStatusTone(value: string): "ok" | "warn" | "danger" | "neutral" 
 
   if (
     normalized.includes("zerado") ||
+    normalized.includes("crit") ||
     normalized.includes("reje") ||
     normalized.includes("cancel") ||
     normalized.includes("estornado") ||
@@ -105,29 +110,33 @@ export class ReportExportService {
     }));
 
     const headerRow = worksheet.getRow(1);
-    headerRow.font = {
-      bold: true,
-      color: {
-        argb: "FF475569"
-      },
-      size: 10
-    };
-    headerRow.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: {
-        argb: "FFF8FAFC"
-      }
-    };
-    headerRow.alignment = {
-      vertical: "middle",
-      horizontal: "left",
-      wrapText: true
-    };
-    headerRow.border = {
-      top: { style: "thin", color: { argb: "FFE2E8F0" } },
-      bottom: { style: "thin", color: { argb: "FFCBD5E1" } }
-    };
+    report.columns.forEach((column, index) => {
+      const cell = headerRow.getCell(index + 1);
+      cell.font = {
+        bold: true,
+        color: {
+          argb: "FF475569"
+        },
+        size: 10
+      };
+      cell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: {
+          argb: "FFF8FAFC"
+        }
+      };
+      cell.alignment = {
+        vertical: "middle",
+        horizontal: column.align ?? "left",
+        wrapText: false,
+        shrinkToFit: true
+      };
+      cell.border = {
+        top: { style: "thin", color: { argb: "FFE2E8F0" } },
+        bottom: { style: "thin", color: { argb: "FFCBD5E1" } }
+      };
+    });
 
     for (const row of report.rows) {
       if (row.__rowType === "section") {
@@ -172,19 +181,20 @@ export class ReportExportService {
         report.columns.map((column) => formatCellValue(row[column.key] ?? ""))
       );
 
-      dataRow.alignment = {
-        vertical: "top",
-        horizontal: "left",
-        wrapText: true
-      };
-
-      dataRow.eachCell((cell) => {
+      dataRow.eachCell((cell, columnNumber) => {
+        const reportColumn = report.columns[columnNumber - 1];
         cell.border = {
           bottom: { style: "thin", color: { argb: "FFF1F5F9" } }
         };
         cell.font = {
           color: { argb: "FF1F2937" },
           size: 10
+        };
+        cell.alignment = {
+          vertical: "top",
+          horizontal: reportColumn?.align ?? "left",
+          wrapText: false,
+          shrinkToFit: true
         };
       });
     }
@@ -205,7 +215,7 @@ export class ReportExportService {
       const html = this.buildHtmlTemplate(report);
 
       await page.setContent(html, {
-        waitUntil: "networkidle0"
+        waitUntil: "load"
       });
 
       const pdfBuffer = await page.pdf({
@@ -228,7 +238,14 @@ export class ReportExportService {
   private buildHtmlTemplate(report: TabularReport): string {
     const contextLines = report.pdfHeader?.contextLines ?? [];
     const tableHeaders = report.columns
-      .map((column) => `<th>${escapeHtml(column.header)}</th>`)
+      .map((column) => `<th class="align-${column.align ?? "left"}">${escapeHtml(column.header)}</th>`)
+      .join("");
+    const totalColumnWidth = report.columns.reduce((sum, column) => sum + (column.width ?? 20), 0);
+    const colGroup = report.columns
+      .map((column) => {
+        const width = (((column.width ?? 20) / totalColumnWidth) * 100).toFixed(2);
+        return `<col style="width: ${width}%;" />`;
+      })
       .join("");
 
     const tableRows = report.rows
@@ -252,18 +269,19 @@ export class ReportExportService {
             const formattedValue = formatCellValue(rawValue);
             const isNumeric = typeof rawValue === "number";
             const isStatusColumn = column.key.toLowerCase().includes("status");
+            const alignmentClass = `align-${column.align ?? (isNumeric ? "right" : "left")}`;
 
             if (isStatusColumn) {
               const tone = resolveStatusTone(String(formattedValue));
 
               return `
-                <td class="status-cell">
+                <td class="status-cell ${alignmentClass}">
                   <span class="status-pill status-pill-${tone}">${escapeHtml(String(formattedValue))}</span>
                 </td>
               `;
             }
 
-            return `<td class="${isNumeric ? "cell-number" : ""}">${escapeHtml(String(formattedValue))}</td>`;
+            return `<td class="${alignmentClass} ${isNumeric ? "cell-number" : ""}">${escapeHtml(String(formattedValue))}</td>`;
           })
           .join("");
 
@@ -389,17 +407,22 @@ export class ReportExportService {
               border-collapse: collapse;
               width: 100%;
               font-size: 11px;
+              table-layout: fixed;
             }
             th, td {
               border-bottom: 1px solid #eef2f7;
-              padding: 7px 8px;
+              padding: 6px 7px;
               text-align: left;
               vertical-align: middle;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              word-break: normal;
             }
             th {
               background: #ffffff;
               color: #52525b;
-              font-size: 10px;
+              font-size: 9px;
               font-weight: 700;
               text-transform: uppercase;
               letter-spacing: 0.08em;
@@ -436,6 +459,15 @@ export class ReportExportService {
               text-align: right;
               font-variant-numeric: tabular-nums;
             }
+            .align-left {
+              text-align: left;
+            }
+            .align-center {
+              text-align: center;
+            }
+            .align-right {
+              text-align: right;
+            }
             .status-cell {
               white-space: nowrap;
             }
@@ -468,6 +500,9 @@ export class ReportExportService {
               <div>${escapeHtml(`Itens: ${report.rows.filter((row) => row.__rowType !== "section").length}`)}</div>
             </div>
             <table>
+              <colgroup>
+                ${colGroup}
+              </colgroup>
               <thead>
                 <tr>${tableHeaders}</tr>
               </thead>
