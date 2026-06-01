@@ -19,6 +19,7 @@ const deleteLoadingId = ref<string | null>(null);
 const exporting = ref<ReportFormat | null>(null);
 const selectedListBaseId = ref("");
 const selectedListCategoryId = ref("");
+const productSearch = ref("");
 const expandedProductIds = ref<string[]>([]);
 const stockConfigDrafts = reactive<Record<string, { minimumQuantity: number; idealQuantity: number }>>({});
 const stockConfigSavingKey = ref("");
@@ -67,6 +68,17 @@ const visibleProducts = computed(() => {
     product.allowedBases.some((base) => accessibleBaseIds.value.has(base.id))
   );
 });
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
+}
+
+const normalizedProductSearch = computed(() => normalizeSearchText(productSearch.value));
+
 const filteredProducts = computed(() => {
   const productsByBase = !selectedListBaseId.value
     ? visibleProducts.value
@@ -74,11 +86,18 @@ const filteredProducts = computed(() => {
         product.allowedBases.some((base) => base.id === selectedListBaseId.value)
       );
 
-  if (!selectedListCategoryId.value) {
-    return productsByBase;
+  const productsByCategory = !selectedListCategoryId.value
+    ? productsByBase
+    : productsByBase.filter((product) => product.categoryId === selectedListCategoryId.value);
+
+  if (!normalizedProductSearch.value) {
+    return productsByCategory;
   }
 
-  return productsByBase.filter((product) => product.categoryId === selectedListCategoryId.value);
+  return productsByCategory.filter((product) => {
+    const searchTarget = `${product.name} ${product.sku}`;
+    return normalizeSearchText(searchTarget).includes(normalizedProductSearch.value);
+  });
 });
 const selectedListBaseName = computed(
   () => bases.value.find((base) => base.id === selectedListBaseId.value)?.name ?? ""
@@ -785,13 +804,17 @@ watch(selectedListCategoryId, () => {
 
 watch(filteredProducts, () => {
   syncExpandedProducts();
+
+  if (editForm.id && !filteredProducts.value.some((product) => product.id === editForm.id)) {
+    cancelEdit();
+  }
 });
 </script>
 
 <template>
   <section class="space-y-6">
     <article class="erp-surface p-6 reveal-up">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p class="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">Cadastros</p>
           <h1 class="font-heading mt-2 text-3xl text-slate-900">Gestao de produtos</h1>
@@ -813,7 +836,7 @@ watch(filteredProducts, () => {
       </p>
     </article>
 
-    <section v-if="canManage" class="grid gap-6 xl:grid-cols-[minmax(0,520px)]">
+    <section v-if="canManage" class="grid gap-6 xl:max-w-4xl">
       <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.05s">
         <h2 class="font-heading text-2xl text-slate-900">Novo produto</h2>
 
@@ -918,21 +941,6 @@ watch(filteredProducts, () => {
           </div>
 
           <div>
-            <label class="erp-label">Estoque minimo global (legado)</label>
-            <input
-              v-model.number="createForm.minimumStock"
-              class="erp-field"
-              type="number"
-              min="0"
-              step="1"
-            />
-            <p v-if="createMinimumStockError" class="mt-1 text-xs text-rose-600">{{ createMinimumStockError }}</p>
-            <p v-else class="mt-1 text-xs text-slate-500">
-              A configuracao principal agora fica no bloco "Estoque por Base" apos o cadastro do produto.
-            </p>
-          </div>
-
-          <div>
             <label class="erp-label">Descricao (opcional)</label>
             <textarea
               v-model="createForm.description"
@@ -954,47 +962,91 @@ watch(filteredProducts, () => {
       </article>
     </section>
 
-    <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.14s">
-      <div class="mb-4 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.1s">
+      <div
+        class="grid gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,180px)_minmax(0,180px)_minmax(240px,1fr)_auto_auto] lg:items-end"
+      >
         <div>
-          <h2 class="font-heading text-xl text-slate-900">Produtos cadastrados</h2>
-          <p class="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">{{ filteredProducts.length }} registros</p>
+          <label class="erp-label">Base visualizada</label>
+          <select v-model="selectedListBaseId" class="erp-select" :disabled="loading || bases.length === 0">
+            <option v-if="isAdmin" value="">Todas as bases</option>
+            <option v-for="base in bases" :key="base.id" :value="base.id">{{ base.name }}</option>
+          </select>
         </div>
 
-        <div class="grid w-full gap-4 lg:max-w-2xl lg:grid-cols-2">
-          <div>
-            <label class="erp-label">Base visualizada</label>
-            <select v-model="selectedListBaseId" class="erp-select" :disabled="loading || bases.length === 0">
-              <option v-if="isAdmin" value="">Todas as bases</option>
-              <option v-for="base in bases" :key="base.id" :value="base.id">{{ base.name }}</option>
-            </select>
-            <p class="mt-1 text-xs text-slate-500">
-              {{ selectedListBaseName ? `Exibindo apenas registros vinculados a ${selectedListBaseName}.` : "Visao geral de todas as bases." }}
-            </p>
-          </div>
-
-          <div>
-            <label class="erp-label">Categoria visualizada</label>
-            <select v-model="selectedListCategoryId" class="erp-select" :disabled="loading || categories.length === 0">
-              <option value="">Todas as categorias</option>
-              <option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option>
-            </select>
-            <p class="mt-1 text-xs text-slate-500">
-              {{ selectedListCategoryName ? `Exibindo apenas produtos da categoria ${selectedListCategoryName}.` : "Visao geral de todas as categorias." }}
-            </p>
-          </div>
+        <div>
+          <label class="erp-label">Categoria visualizada</label>
+          <select v-model="selectedListCategoryId" class="erp-select" :disabled="loading || categories.length === 0">
+            <option value="">Todas as categorias</option>
+            <option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option>
+          </select>
         </div>
 
-        <div class="flex flex-wrap gap-2 lg:justify-end">
-          <button type="button" class="erp-button-muted" :disabled="exporting !== null" @click="exportProductsStock('excel')">
+        <div class="md:col-span-2 lg:col-span-1">
+          <label class="erp-label">Pesquisa</label>
+          <input
+            v-model="productSearch"
+            class="erp-field"
+            type="search"
+            placeholder="Buscar por nome do produto ou SKU"
+          />
+        </div>
+
+        <div class="flex flex-col justify-end">
+          <span class="erp-label invisible">Exportar</span>
+          <button
+            type="button"
+            class="erp-button-muted h-11 w-full lg:w-auto"
+            :disabled="exporting !== null"
+            @click="exportProductsStock('excel')"
+          >
             <ion-icon name="download-outline"></ion-icon>
             {{ exporting === "excel" ? "Exportando..." : "Exportar Excel" }}
           </button>
-          <button type="button" class="erp-button-primary" :disabled="exporting !== null" @click="exportProductsStock('pdf')">
+        </div>
+
+        <div class="flex flex-col justify-end">
+          <span class="erp-label invisible">Exportar</span>
+          <button
+            type="button"
+            class="erp-button-primary h-11 w-full lg:w-auto"
+            :disabled="exporting !== null"
+            @click="exportProductsStock('pdf')"
+          >
             <ion-icon name="document-text-outline"></ion-icon>
             {{ exporting === "pdf" ? "Exportando..." : "Exportar PDF" }}
           </button>
         </div>
+      </div>
+
+      <p class="mt-3 text-xs text-slate-500">
+        {{
+          selectedListBaseName
+            ? `Base: ${selectedListBaseName}`
+            : isAdmin
+              ? "Base: todas"
+              : "Base filtrada pelo seu acesso"
+        }}
+        {{
+          selectedListCategoryName
+            ? ` • Categoria: ${selectedListCategoryName}`
+            : " • Categoria: todas"
+        }}
+        {{
+          productSearch.trim()
+            ? ` • Busca: ${productSearch.trim()}`
+            : " • Busca instantanea por nome ou SKU"
+        }}
+      </p>
+    </article>
+
+    <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.14s">
+      <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 class="font-heading text-xl text-slate-900">Produtos cadastrados</h2>
+          <p class="mt-1 text-xs uppercase tracking-[0.14em] text-slate-500">{{ filteredProducts.length }} registros</p>
+        </div>
+        <p class="text-xs text-slate-500">Clique em um item para visualizar o estoque por base e editar o cadastro sem sair da listagem.</p>
       </div>
 
       <div class="erp-table-wrap">
@@ -1308,21 +1360,6 @@ watch(filteredProducts, () => {
                           </select>
                           <p v-if="editTouched.categoryId && editCategoryError" class="mt-1 text-xs text-rose-600">
                             {{ editCategoryError }}
-                          </p>
-                        </div>
-
-                        <div>
-                          <label class="erp-label">Estoque minimo global (legado)</label>
-                          <input
-                            v-model.number="editForm.minimumStock"
-                            class="erp-field"
-                            type="number"
-                            min="0"
-                            step="1"
-                          />
-                          <p v-if="editMinimumStockError" class="mt-1 text-xs text-rose-600">{{ editMinimumStockError }}</p>
-                          <p v-else class="mt-1 text-xs text-slate-500">
-                            A configuracao ativa por base fica logo acima, neste mesmo bloco do produto.
                           </p>
                         </div>
 

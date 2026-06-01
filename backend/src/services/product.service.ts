@@ -254,23 +254,33 @@ export class ProductService {
     const rows = this.buildGroupedProductReportRows(filteredByCategoryProducts, baseId);
 
     const report: TabularReport = {
-      title: baseId ? "Produtos por Base" : "Produtos e Estoque",
+      title: "Relatorio de Produtos e Estoque",
       generatedAt: new Date(),
       pdfHeader: {
         companyName: user.company.name,
         companyLogoDataUrl: user.company.logoDataUrl ?? null,
-        contextLines: [
-          `Base: ${await this.resolveBaseLabel(user.companyId, baseId)}`,
-          `Categoria: ${await this.resolveCategoryLabel(user.companyId, categoryId)}`
+        contextItems: [
+          {
+            label: "Base selecionada",
+            value: await this.resolveBaseLabel(user.companyId, baseId)
+          },
+          {
+            label: "Categoria selecionada",
+            value: await this.resolveCategoryLabel(user.companyId, categoryId)
+          }
         ]
       },
+      pdfOptions: {
+        orientation: "landscape",
+        zebraStripes: true
+      },
       columns: [
-        { header: "Produto", key: "productName", width: 34 },
-        { header: "Categoria", key: "category", width: 24 },
+        { header: "Produto", key: "productName", width: 30, wrap: true, headerWrap: true },
+        { header: "Categoria", key: "category", width: 20, wrap: true, headerWrap: true },
         { header: "Estoque", key: "stockQuantity", width: 10, align: "right" },
-        { header: "Indicadores", key: "thresholds", width: 20 },
-        { header: "Status", key: "stockStatus", width: 12 },
-        { header: "Atualizado", key: "updatedAt", width: 16 }
+        { header: "Indicadores", key: "thresholds", width: 15, wrap: true, headerWrap: true },
+        { header: "Status", key: "stockStatus", width: 15, wrap: true, headerWrap: true },
+        { header: "Atualizado", key: "updatedAt", width: 10, headerWrap: true }
       ],
       rows
     };

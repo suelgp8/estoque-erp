@@ -159,8 +159,8 @@ watch(
 </script>
 
 <template>
-  <div class="relative min-h-screen text-slate-800">
-    <div class="relative mx-auto flex min-h-screen max-w-[1520px]">
+  <div class="relative min-h-screen overflow-x-clip text-slate-800">
+    <div class="relative mx-auto flex min-h-screen w-full max-w-[1520px] min-w-0 overflow-x-clip">
       <div
         v-if="mobileMenuOpen"
         class="fixed inset-0 z-30 bg-slate-900/16 backdrop-blur-[1px] lg:hidden"
@@ -174,7 +174,7 @@ watch(
       >
         <section class="rounded-[28px] border border-slate-200 bg-white/92 px-5 py-4">
           <div class="flex items-center gap-3">
-            <span class="inline-flex h-3 w-3 rounded-full bg-emerald-500"></span>
+            <span class="inline-flex h-3 w-3 rounded-full bg-blue-500"></span>
             <p class="font-heading text-[11px] uppercase tracking-[0.28em] text-slate-500">Estoque ERP</p>
           </div>
           <div class="mt-4 flex h-24 items-center justify-center overflow-hidden rounded-[22px] border border-slate-200 bg-transparent px-4">
@@ -230,10 +230,12 @@ watch(
         </nav>
       </aside>
 
-      <div class="relative flex min-h-screen w-full flex-1 flex-col">
+      <div class="relative flex min-h-screen w-full min-w-0 flex-1 flex-col overflow-x-clip">
         <header class="sticky top-0 z-20 border-b bg-white/70 backdrop-blur">
-          <div class="mx-auto flex min-h-[72px] w-full max-w-[1180px] items-center justify-between gap-4 px-4 py-3 md:px-8">
-            <div class="flex items-center gap-3">
+          <div
+            class="mx-auto flex min-h-[72px] w-full max-w-[1180px] flex-wrap items-center justify-between gap-x-4 gap-y-3 px-4 py-3 md:px-8"
+          >
+            <div class="flex min-w-0 flex-1 items-center gap-3">
               <button
                 type="button"
                 class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 lg:hidden"
@@ -242,18 +244,18 @@ watch(
                 <ion-icon name="menu-outline" class="text-xl"></ion-icon>
               </button>
 
-              <div>
-                <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <div class="min-w-0">
+                <p class="truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                   {{ activeNavigationItem?.sectionLabel ?? "Aplicacao" }}
                 </p>
-                <h2 class="font-heading mt-1 text-xl text-slate-900">{{ pageTitle }}</h2>
+                <h2 class="font-heading mt-1 break-words text-lg leading-tight text-slate-900 sm:text-xl">{{ pageTitle }}</h2>
               </div>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex w-full min-w-0 items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3">
               <button
                 type="button"
-                class="theme-toggle"
+                class="theme-toggle shrink-0"
                 :aria-label="isDarkTheme ? 'Ativar tema claro' : 'Ativar tema escuro'"
                 :title="isDarkTheme ? 'Ativar tema claro' : 'Ativar tema escuro'"
                 :class="isDarkTheme ? 'is-dark' : 'is-light'"
@@ -265,10 +267,10 @@ watch(
                 </span>
               </button>
 
-              <div ref="profileMenuRef" class="relative">
+              <div ref="profileMenuRef" class="relative min-w-0 flex-1 sm:flex-none">
                 <button
                   type="button"
-                  class="flex min-w-[164px] items-center gap-3 rounded-2xl border border-slate-200 bg-white/85 px-3 py-2.5 text-left transition hover:border-slate-300 hover:bg-white sm:min-w-[236px] sm:px-4"
+                  class="flex w-full min-w-0 max-w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white/85 px-3 py-2.5 text-left transition hover:border-slate-300 hover:bg-white sm:min-w-[236px] sm:max-w-[320px] sm:px-4"
                   @click="toggleProfileMenu"
                 >
                   <div class="flex min-w-0 flex-1 items-center gap-3">
@@ -303,7 +305,7 @@ watch(
 
                 <div
                   v-if="profileMenuOpen"
-                  class="absolute right-0 top-[calc(100%+0.6rem)] z-30 w-[280px] rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_24px_60px_-32px_rgba(15,23,42,0.45)]"
+                  class="absolute right-0 top-[calc(100%+0.6rem)] z-30 w-[calc(100vw-2rem)] max-w-[280px] rounded-[24px] border border-slate-200 bg-white p-3 shadow-[0_24px_60px_-32px_rgba(15,23,42,0.45)] sm:w-[280px]"
                 >
                   <div class="flex items-center gap-3 rounded-[20px] bg-slate-50 px-4 py-3">
                     <div class="h-12 w-12 overflow-hidden rounded-full bg-slate-900">
@@ -352,7 +354,7 @@ watch(
         </header>
 
         <main class="flex-1">
-          <div class="mx-auto w-full max-w-[1180px] px-4 py-6 md:px-8 md:py-8">
+          <div class="mx-auto w-full max-w-[1180px] min-w-0 px-4 py-6 md:px-8 md:py-8">
             <RouterView />
           </div>
         </main>

@@ -790,12 +790,12 @@ watch(
           </div>
 
           <div class="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div class="flex items-center justify-between">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p class="text-sm font-semibold text-slate-700">Itens</p>
                 <p class="mt-1 text-xs text-slate-500">{{ stockPreviewContextLabel }}</p>
               </div>
-              <button type="button" class="erp-button-muted text-xs" @click="addItem">
+              <button type="button" class="erp-button-muted w-full text-xs sm:w-auto" @click="addItem">
                 <ion-icon name="add-outline"></ion-icon>
                 Adicionar item
               </button>

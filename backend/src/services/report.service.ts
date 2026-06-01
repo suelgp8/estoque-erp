@@ -115,21 +115,34 @@ export class ReportService {
     const report = await this.getStockReport(userId, filters);
 
     const tabularReport: TabularReport = {
-      title: "Relatorio de Estoque",
+      title: "Relatorio de Produtos e Estoque",
       generatedAt: new Date(),
       pdfHeader: {
         companyName: user.company.name,
         companyLogoDataUrl: user.company.logoDataUrl ?? null,
-        contextLines: [`Base: ${await this.resolveBaseLabel(user.companyId, filters.baseId)}`]
+        contextItems: [
+          {
+            label: "Base selecionada",
+            value: await this.resolveBaseLabel(user.companyId, filters.baseId)
+          },
+          {
+            label: "Categoria selecionada",
+            value: await this.resolveCategoryLabel(user.companyId, filters.categoryId)
+          }
+        ]
+      },
+      pdfOptions: {
+        orientation: "landscape",
+        zebraStripes: true
       },
       columns: [
-        { header: "Produto", key: "productName", width: 30 },
-        { header: "Categoria", key: "category", width: 20 },
-        { header: "Base", key: "base", width: 20 },
+        { header: "Produto", key: "productName", width: 26, wrap: true, headerWrap: true },
+        { header: "Categoria", key: "category", width: 16, wrap: true, headerWrap: true },
+        { header: "Base", key: "base", width: 18, wrap: true, headerWrap: true },
         { header: "Qtd", key: "quantity", width: 10, align: "right" },
         { header: "Min.", key: "minimumQuantity", width: 10, align: "right" },
         { header: "Ideal", key: "idealQuantity", width: 10, align: "right" },
-        { header: "Status", key: "statusLabel", width: 16 }
+        { header: "Status", key: "statusLabel", width: 10, wrap: true, headerWrap: true }
       ],
       rows: report.rows.map((row) => ({
         ...row,
@@ -299,6 +312,15 @@ export class ReportService {
 
     const base = await this.reportRepository.findBaseByIdAndCompany(baseId, companyId);
     return base?.name ?? baseId;
+  }
+
+  private async resolveCategoryLabel(companyId: string, categoryId?: string): Promise<string> {
+    if (!categoryId) {
+      return "Todas as categorias";
+    }
+
+    const category = await this.reportRepository.findCategoryByIdAndCompany(categoryId, companyId);
+    return category?.name ?? categoryId;
   }
 
   private formatStockStatus(status: StockStatus): string {

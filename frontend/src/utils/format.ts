@@ -27,7 +27,7 @@ const movementStatusToneMap: Record<StockMovementStatus, string> = {
   COMPLETED: "bg-emerald-100 text-emerald-800 border-emerald-200",
   REJECTED: "bg-rose-100 text-rose-800 border-rose-200",
   CANCELED: "bg-slate-200 text-slate-800 border-slate-300",
-  REVERSED: "bg-cyan-100 text-cyan-800 border-cyan-200"
+  REVERSED: "bg-slate-200 text-slate-800 border-slate-300"
 };
 
 export function formatDateTime(value: string): string {

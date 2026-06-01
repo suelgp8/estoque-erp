@@ -150,6 +150,19 @@ export class ReportRepository {
     });
   }
 
+  async findCategoryByIdAndCompany(categoryId: string, companyId: string): Promise<{ id: string; name: string } | null> {
+    return prisma.category.findFirst({
+      where: {
+        id: categoryId,
+        companyId
+      },
+      select: {
+        id: true,
+        name: true
+      }
+    });
+  }
+
   async getStockRecords(
     companyId: string,
     filters: StockReportFilters,

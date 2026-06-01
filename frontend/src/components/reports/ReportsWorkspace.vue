@@ -225,7 +225,7 @@ const movementCards = computed<SummaryCard[]>(() => [
   { label: "Movimentacoes", value: formatNumber(movementSummary.value.rows), helper: "Registros retornados", tone: "border-slate-200 bg-slate-50 text-slate-700" },
   { label: "Quantidade total", value: formatNumber(movementSummary.value.totalQuantity), helper: "Volume movimentado", tone: "border-sky-200 bg-sky-50 text-sky-700" },
   { label: "Entradas", value: formatNumber(movementSummary.value.entriesQuantity), helper: "Quantidade de entrada", tone: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  { label: "Saidas", value: formatNumber(movementSummary.value.exitsQuantity), helper: "Quantidade de saida", tone: "border-cyan-200 bg-cyan-50 text-cyan-700" }
+  { label: "Saidas", value: formatNumber(movementSummary.value.exitsQuantity), helper: "Quantidade de saida", tone: "border-slate-200 bg-slate-50 text-slate-700" }
 ]);
 
 const transferCards = computed<SummaryCard[]>(() => [
@@ -274,7 +274,7 @@ const movementStatusInsights = computed(() =>
     .filter((item) => item.value > 0)
 );
 const transferRouteInsights = computed(() =>
-  buildGroupedInsights(transferRows.value, (row) => `${row.sourceBase} -> ${row.destinationBase}`, (row) => row.totalQuantity, "cyan")
+  buildGroupedInsights(transferRows.value, (row) => `${row.sourceBase} -> ${row.destinationBase}`, (row) => row.totalQuantity, "sky")
 );
 const transferStatusInsights = computed(() =>
   statusOptions
@@ -533,7 +533,7 @@ function resolveInsightBadgeTone(tone: InsightTone | string = "slate"): string {
     emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
     amber: "border-amber-200 bg-amber-50 text-amber-700",
     rose: "border-rose-200 bg-rose-50 text-rose-700",
-    cyan: "border-cyan-200 bg-cyan-50 text-cyan-700"
+    cyan: "border-sky-200 bg-sky-50 text-sky-700"
   };
 
   return toneMap[(tone as InsightTone) ?? "slate"] ?? toneMap.slate;

@@ -14,11 +14,11 @@ const notifier = useNotifier();
 
 const activeTab = ref<AuthTab>("login");
 
-const loginEmail = ref("admin@estoque.local");
-const loginPassword = ref("admin123");
+const loginEmail = ref("");
+const loginPassword = ref("");
 const loginLoading = ref(false);
 
-const forgotEmail = ref("admin@estoque.local");
+const forgotEmail = ref("");
 const forgotLoading = ref(false);
 
 const resetToken = ref("");

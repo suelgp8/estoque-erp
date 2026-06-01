@@ -13,12 +13,22 @@ export type TabularReport = {
     companyName: string;
     companyLogoDataUrl?: string | null;
     contextLines?: string[];
+    contextItems?: Array<{
+      label: string;
+      value: string;
+    }>;
+  };
+  pdfOptions?: {
+    orientation?: "portrait" | "landscape";
+    zebraStripes?: boolean;
   };
   columns: Array<{
     header: string;
     key: string;
     width?: number;
     align?: "left" | "center" | "right";
+    wrap?: boolean;
+    headerWrap?: boolean;
   }>;
   rows: TabularReportRow[];
 };
@@ -220,11 +230,12 @@ export class ReportExportService {
 
       const pdfBuffer = await page.pdf({
         format: "A4",
+        landscape: report.pdfOptions?.orientation === "landscape",
         printBackground: true,
         margin: {
-          top: "16mm",
+          top: "12mm",
           right: "10mm",
-          bottom: "16mm",
+          bottom: "12mm",
           left: "10mm"
         }
       });
@@ -236,9 +247,30 @@ export class ReportExportService {
   }
 
   private buildHtmlTemplate(report: TabularReport): string {
-    const contextLines = report.pdfHeader?.contextLines ?? [];
+    const contextItems =
+      report.pdfHeader?.contextItems ??
+      (report.pdfHeader?.contextLines ?? []).map((line, index) => {
+        const separatorIndex = line.indexOf(":");
+
+        if (separatorIndex === -1) {
+          return {
+            label: `Contexto ${index + 1}`,
+            value: line
+          };
+        }
+
+        return {
+          label: line.slice(0, separatorIndex).trim(),
+          value: line.slice(separatorIndex + 1).trim()
+        };
+      });
+    const totalRows = report.rows.filter((row) => row.__rowType !== "section").length;
     const tableHeaders = report.columns
-      .map((column) => `<th class="align-${column.align ?? "left"}">${escapeHtml(column.header)}</th>`)
+      .map((column) => {
+        const alignment = column.align ?? "left";
+        const wrapClass = column.headerWrap ?? column.wrap ? "cell-wrap" : "cell-nowrap";
+        return `<th class="align-${alignment} ${wrapClass}">${escapeHtml(column.header)}</th>`;
+      })
       .join("");
     const totalColumnWidth = report.columns.reduce((sum, column) => sum + (column.width ?? 20), 0);
     const colGroup = report.columns
@@ -270,18 +302,19 @@ export class ReportExportService {
             const isNumeric = typeof rawValue === "number";
             const isStatusColumn = column.key.toLowerCase().includes("status");
             const alignmentClass = `align-${column.align ?? (isNumeric ? "right" : "left")}`;
+            const wrapClass = column.wrap ? "cell-wrap" : "cell-nowrap";
 
             if (isStatusColumn) {
               const tone = resolveStatusTone(String(formattedValue));
 
               return `
-                <td class="status-cell ${alignmentClass}">
+                <td class="status-cell ${alignmentClass} ${wrapClass}">
                   <span class="status-pill status-pill-${tone}">${escapeHtml(String(formattedValue))}</span>
                 </td>
               `;
             }
 
-            return `<td class="${alignmentClass} ${isNumeric ? "cell-number" : ""}">${escapeHtml(String(formattedValue))}</td>`;
+            return `<td class="${alignmentClass} ${wrapClass} ${isNumeric ? "cell-number" : ""}">${escapeHtml(String(formattedValue))}</td>`;
           })
           .join("");
 
@@ -306,8 +339,7 @@ export class ReportExportService {
 
             <div class="report-summary">
               <h1>${escapeHtml(report.title)}</h1>
-              ${contextLines.map((line) => `<div class="summary-line">${escapeHtml(line)}</div>`).join("")}
-              <div class="summary-line">Gerado em: ${escapeHtml(formatDateTime(report.generatedAt))}</div>
+              <div class="summary-line">Relatorio executivo com foco em legibilidade e acompanhamento operacional.</div>
             </div>
           </header>
         `
@@ -320,6 +352,27 @@ export class ReportExportService {
           </header>
         `;
 
+    const metaCards = [
+      ...contextItems,
+      {
+        label: "Gerado em",
+        value: formatDateTime(report.generatedAt)
+      },
+      {
+        label: "Total de registros",
+        value: totalRows.toLocaleString("pt-BR")
+      }
+    ]
+      .map(
+        (item) => `
+          <div class="meta-card">
+            <div class="meta-label">${escapeHtml(item.label)}</div>
+            <div class="meta-value">${escapeHtml(item.value)}</div>
+          </div>
+        `
+      )
+      .join("");
+
     return `
       <!doctype html>
       <html lang="pt-BR">
@@ -327,23 +380,26 @@ export class ReportExportService {
           <meta charset="UTF-8" />
           <title>${escapeHtml(report.title)}</title>
           <style>
+            * {
+              box-sizing: border-box;
+            }
             body {
-              font-family: Arial, sans-serif;
-              color: #111827;
+              font-family: "Segoe UI", Arial, sans-serif;
+              color: #0f172a;
               margin: 0;
               background: #ffffff;
             }
             .container {
-              padding: 18px 24px 24px;
+              padding: 12px 14px 18px;
             }
             .report-header {
               display: flex;
-              align-items: center;
+              align-items: flex-start;
               justify-content: space-between;
-              gap: 24px;
-              padding: 0 0 14px;
-              margin-bottom: 16px;
-              border-bottom: 1px solid #e2e8f0;
+              gap: 18px;
+              padding: 0 0 12px;
+              margin-bottom: 12px;
+              border-bottom: 1px solid #cbd5e1;
             }
             .report-header-simple {
               justify-content: flex-start;
@@ -356,8 +412,8 @@ export class ReportExportService {
               flex: 1;
             }
             .brand-logo {
-              width: 140px;
-              max-height: 64px;
+              width: 128px;
+              max-height: 56px;
               object-fit: contain;
               object-position: left center;
               flex-shrink: 0;
@@ -367,67 +423,111 @@ export class ReportExportService {
             }
             .brand-label {
               color: #64748b;
-              font-size: 10px;
+              font-size: 9px;
               text-transform: uppercase;
-              letter-spacing: 0.14em;
+              letter-spacing: 0.18em;
               margin-bottom: 3px;
             }
             .brand-name {
-              font-size: 18px;
+              font-size: 17px;
               font-weight: 700;
-              line-height: 1.2;
+              line-height: 1.25;
             }
             .report-summary {
-              min-width: 260px;
+              min-width: 280px;
               text-align: right;
             }
             h1 {
-              margin: 0 0 8px 0;
-              font-size: 20px;
+              margin: 0 0 6px 0;
+              font-size: 24px;
+              line-height: 1.15;
             }
             .summary-line {
               color: #4b5563;
-              font-size: 11px;
+              font-size: 10.5px;
               margin-top: 3px;
+              line-height: 1.4;
             }
-            .report-meta-strip {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              gap: 16px;
+            .report-meta-grid {
+              display: grid;
+              grid-template-columns: repeat(4, minmax(0, 1fr));
+              gap: 8px;
               margin-bottom: 12px;
-              padding: 8px 12px;
-              border: 1px solid #e2e8f0;
+            }
+            .meta-card {
+              min-height: 54px;
+              padding: 8px 10px;
+              border: 1px solid #dbe3ee;
               border-radius: 10px;
               background: #f8fafc;
+            }
+            .meta-label {
+              color: #64748b;
+              font-size: 9px;
+              font-weight: 700;
+              text-transform: uppercase;
+              letter-spacing: 0.12em;
+              margin-bottom: 5px;
+            }
+            .meta-value {
+              color: #0f172a;
               font-size: 11px;
-              color: #475569;
+              font-weight: 600;
+              line-height: 1.35;
             }
             table {
               border-collapse: collapse;
               width: 100%;
-              font-size: 11px;
+              font-size: 10px;
               table-layout: fixed;
-            }
-            th, td {
-              border-bottom: 1px solid #eef2f7;
-              padding: 6px 7px;
-              text-align: left;
-              vertical-align: middle;
-              white-space: nowrap;
+              border: 1px solid #dbe3ee;
+              border-radius: 12px;
               overflow: hidden;
-              text-overflow: ellipsis;
-              word-break: normal;
+            }
+            thead {
+              display: table-header-group;
+            }
+            tbody {
+              display: table-row-group;
+            }
+            tr, td, th {
+              break-inside: avoid;
+              page-break-inside: avoid;
             }
             th {
-              background: #ffffff;
-              color: #52525b;
+              padding: 8px 9px;
+              background: #e2e8f0;
+              color: #334155;
               font-size: 9px;
               font-weight: 700;
               text-transform: uppercase;
-              letter-spacing: 0.08em;
-              border-top: 1px solid #cbd5e1;
-              border-bottom: 2px solid #cbd5e1;
+              letter-spacing: 0.1em;
+              border-bottom: 1px solid #cbd5e1;
+              vertical-align: top;
+              line-height: 1.35;
+            }
+            td {
+              padding: 7px 9px;
+              border-bottom: 1px solid #e5e7eb;
+              text-align: left;
+              vertical-align: top;
+              line-height: 1.35;
+              color: #0f172a;
+            }
+            tbody tr {
+              background: #ffffff;
+            }
+            ${
+              report.pdfOptions?.zebraStripes === false
+                ? ""
+                : `
+            tbody tr:nth-child(even) {
+              background: #f8fafc;
+            }
+            `
+            }
+            tbody tr:last-child td {
+              border-bottom: none;
             }
             tbody tr.section-row td {
               border: none;
@@ -455,6 +555,18 @@ export class ReportExportService {
               background: #f59e0b;
               flex-shrink: 0;
             }
+            .cell-wrap {
+              white-space: normal;
+              overflow: visible;
+              text-overflow: clip;
+              overflow-wrap: anywhere;
+              word-break: break-word;
+            }
+            .cell-nowrap {
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
             .cell-number {
               text-align: right;
               font-variant-numeric: tabular-nums;
@@ -469,35 +581,45 @@ export class ReportExportService {
               text-align: right;
             }
             .status-cell {
-              white-space: nowrap;
+              vertical-align: middle;
             }
             .status-pill {
               display: inline-flex;
               align-items: center;
-              padding: 2px 0;
-              font-size: 10px;
+              min-height: 22px;
+              padding: 2px 8px;
+              border: 1px solid currentColor;
+              border-left-width: 4px;
+              border-radius: 999px;
+              background: #ffffff;
+              font-size: 9.5px;
               font-weight: 700;
+              letter-spacing: 0.02em;
             }
             .status-pill-ok {
-              color: #047857;
+              color: #166534;
             }
             .status-pill-warn {
-              color: #b45309;
+              color: #92400e;
             }
             .status-pill-danger {
-              color: #b91c1c;
+              color: #991b1b;
             }
             .status-pill-neutral {
               color: #475569;
+            }
+            @media print {
+              .container {
+                padding-bottom: 0;
+              }
             }
           </style>
         </head>
         <body>
           <div class="container">
             ${headerBlock}
-            <div class="report-meta-strip">
-              <div>${escapeHtml(report.title)}</div>
-              <div>${escapeHtml(`Itens: ${report.rows.filter((row) => row.__rowType !== "section").length}`)}</div>
+            <div class="report-meta-grid">
+              ${metaCards}
             </div>
             <table>
               <colgroup>

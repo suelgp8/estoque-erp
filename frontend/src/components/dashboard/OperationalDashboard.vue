@@ -454,7 +454,7 @@ const todoItems = computed<TodoItem[]>(() => [
     count: openTransfersCount.value,
     to: "/app/movements",
     buttonLabel: "Ver transferencias",
-    tone: "border-cyan-200 bg-cyan-50"
+    tone: "border-sky-200 bg-sky-50"
   },
   {
     label: "Revisar ocorrencias",
@@ -568,7 +568,7 @@ const priorityCards = computed<DashboardCard[]>(() => [
     label: "Transferencias",
     value: formatNumber(openTransfersCount.value),
     helper: "Abertas para acompanhamento",
-    tone: openTransfersCount.value > 0 ? "border-cyan-200 bg-cyan-50 text-cyan-700" : "border-slate-200 bg-white text-slate-700"
+    tone: openTransfersCount.value > 0 ? "border-sky-200 bg-sky-50 text-sky-700" : "border-slate-200 bg-white text-slate-700"
   },
   {
     label: "Ocorrencias",
@@ -711,7 +711,7 @@ onMounted(async () => {
         </div>
 
         <aside class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div class="flex items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Filtros</p>
               <p class="mt-1 text-sm font-semibold text-slate-900">{{ selectedBaseLabel }}</p>
@@ -789,7 +789,7 @@ onMounted(async () => {
 
     <section class="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.08s">
-        <div class="mb-4 flex items-center justify-between gap-3">
+        <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 class="font-heading text-xl text-slate-900">A fazer agora</h2>
             <p class="mt-1 text-sm text-slate-500">Prioridades do filtro atual.</p>
@@ -821,7 +821,7 @@ onMounted(async () => {
       </article>
 
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.12s">
-        <div class="mb-4 flex items-center justify-between gap-3">
+        <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 class="font-heading text-xl text-slate-900">Tendencia 7 dias</h2>
             <p class="mt-1 text-sm text-slate-500">Entradas, saidas e transferencias.</p>
@@ -841,12 +841,12 @@ onMounted(async () => {
                   :title="`Entradas: ${formatNumber(day.entry)}`"
                 />
                 <span
-                  class="w-2 rounded-t bg-cyan-500 transition-all duration-500"
+                  class="w-2 rounded-t bg-amber-500 transition-all duration-500"
                   :style="{ height: resolveTrendBarHeight(day.exit) }"
                   :title="`Saidas: ${formatNumber(day.exit)}`"
                 />
                 <span
-                  class="w-2 rounded-t bg-indigo-500 transition-all duration-500"
+                  class="w-2 rounded-t bg-blue-500 transition-all duration-500"
                   :style="{ height: resolveTrendBarHeight(day.transfer) }"
                   :title="`Transferencias: ${formatNumber(day.transfer)}`"
                 />
@@ -861,11 +861,11 @@ onMounted(async () => {
               Entradas
             </span>
             <span class="inline-flex items-center gap-1.5">
-              <span class="h-2.5 w-2.5 rounded-full bg-cyan-500"></span>
+              <span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
               Saidas
             </span>
             <span class="inline-flex items-center gap-1.5">
-              <span class="h-2.5 w-2.5 rounded-full bg-indigo-500"></span>
+              <span class="h-2.5 w-2.5 rounded-full bg-blue-500"></span>
               Transferencias
             </span>
           </div>
@@ -943,7 +943,7 @@ onMounted(async () => {
 
             <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
               <div
-                class="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-500 transition-all duration-500"
+                class="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-500"
                 :style="{ width: `${entry.percent}%` }"
               />
             </div>
@@ -966,7 +966,7 @@ onMounted(async () => {
 
     <section class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.24s">
-        <div class="mb-4 flex items-center justify-between gap-3">
+        <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 class="font-heading text-xl text-slate-900">Atividade recente</h2>
             <p class="mt-1 text-sm text-slate-500">Ultimas ocorrencias registradas.</p>
@@ -1022,7 +1022,7 @@ onMounted(async () => {
               class="rounded-xl border px-4 py-3"
               :class="movementStatusTone(entry.status)"
             >
-              <div class="flex items-center justify-between gap-3">
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p class="text-xs font-semibold uppercase tracking-[0.12em]">{{ formatMovementStatus(entry.status) }}</p>
                 <p class="font-heading text-2xl">{{ formatNumber(entry.count) }}</p>
               </div>
