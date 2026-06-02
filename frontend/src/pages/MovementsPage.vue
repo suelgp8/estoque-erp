@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useNotifier } from "../composables/useNotifier";
 import { ApiError, api } from "../services/api";
@@ -37,6 +37,7 @@ const recentMovements = ref<MovementReportRow[]>([]);
 const selectedListBaseId = ref("");
 const stockPreviewByProductId = ref<Record<string, { source?: number; destination?: number }>>({});
 const openProductDropdownIndex = ref<number | null>(null);
+const movementItemsListRef = ref<HTMLElement | null>(null);
 
 const isAdmin = computed(() => auth.state.user?.role === "ADMIN");
 const selectedListBaseName = computed(
@@ -164,8 +165,16 @@ function resolveErrorMessage(error: unknown): string {
   return "Erro inesperado";
 }
 
-function addItem() {
+async function addItem() {
   movementItems.value.push({ productId: "", quantity: 1, productSearch: "" });
+
+  await nextTick();
+
+  const itemElements = movementItemsListRef.value?.querySelectorAll<HTMLElement>("[data-movement-item]");
+  const newestItemElement = itemElements?.[itemElements.length - 1];
+
+  newestItemElement?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  newestItemElement?.querySelector<HTMLInputElement>("input")?.focus();
 }
 
 function removeItem(index: number) {
@@ -795,10 +804,6 @@ watch(
                 <p class="text-sm font-semibold text-slate-700">Itens</p>
                 <p class="mt-1 text-xs text-slate-500">{{ stockPreviewContextLabel }}</p>
               </div>
-              <button type="button" class="erp-button-muted w-full text-xs sm:w-auto" @click="addItem">
-                <ion-icon name="add-outline"></ion-icon>
-                Adicionar item
-              </button>
             </div>
 
             <p v-if="stockPreviewLoading" class="text-xs text-sky-700">Consultando saldo atual por base...</p>
@@ -806,120 +811,128 @@ watch(
               Nao foi possivel consultar o saldo por base agora: {{ stockPreviewError }}
             </p>
 
-            <div
-              v-for="(item, index) in movementItems"
-              :key="index"
-              class="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 md:grid-cols-[1fr_140px_auto]"
-            >
+            <div ref="movementItemsListRef" class="space-y-3">
               <div
-                class="relative"
-                @focusout="handleProductComboboxFocusOut(index, $event)"
+                v-for="(item, index) in movementItems"
+                :key="index"
+                data-movement-item
+                class="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 md:grid-cols-[1fr_140px_auto]"
               >
-                <input
-                  v-model="item.productSearch"
-                  class="erp-field pr-11"
-                  type="text"
-                  :disabled="referencesLoading || availableProductsForMovement.length === 0"
-                  :placeholder="
-                    availableProductsForMovement.length === 0
-                      ? 'Nenhum produto disponivel para as bases selecionadas'
-                      : 'Selecione ou pesquise um produto'
-                  "
-                  @focus="handleProductSearchFocus(item, index)"
-                  @input="handleProductSearchInput(item, index)"
-                  @keydown.down.prevent="openProductDropdown(index)"
-                  @keydown.enter.prevent="selectFirstFilteredProduct(item, index)"
-                  @keydown.esc.prevent="closeProductDropdown(index)"
-                />
-                <button
-                  type="button"
-                  class="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-500"
-                  :disabled="referencesLoading || availableProductsForMovement.length === 0"
-                  @click="openProductDropdownIndex === index ? closeProductDropdown(index) : openProductDropdown(index)"
-                >
-                  <span class="text-xs transition-transform" :class="openProductDropdownIndex === index ? 'rotate-180' : ''">
-                    ▼
-                  </span>
-                </button>
-
                 <div
-                  v-if="openProductDropdownIndex === index"
-                  class="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_-24px_rgba(15,23,42,0.4)]"
+                  class="relative"
+                  @focusout="handleProductComboboxFocusOut(index, $event)"
                 >
-                  <div class="max-h-64 overflow-y-auto py-2">
-                    <button
-                      v-for="product in getFilteredProductsForItem(item)"
-                      :key="product.id"
-                      type="button"
-                      class="block w-full px-3 py-2 text-left transition hover:bg-slate-50"
-                      :class="item.productId === product.id ? 'bg-slate-100' : ''"
-                      @click="selectProductForItem(item, product)"
-                    >
-                      <span class="block text-sm font-medium text-slate-800">{{ product.name }}</span>
-                      <span class="block text-xs text-slate-500">SKU {{ product.sku }} • {{ product.id }}</span>
-                    </button>
+                  <input
+                    v-model="item.productSearch"
+                    class="erp-field pr-11"
+                    type="text"
+                    :disabled="referencesLoading || availableProductsForMovement.length === 0"
+                    :placeholder="
+                      availableProductsForMovement.length === 0
+                        ? 'Nenhum produto disponivel para as bases selecionadas'
+                        : 'Selecione ou pesquise um produto'
+                    "
+                    @focus="handleProductSearchFocus(item, index)"
+                    @input="handleProductSearchInput(item, index)"
+                    @keydown.down.prevent="openProductDropdown(index)"
+                    @keydown.enter.prevent="selectFirstFilteredProduct(item, index)"
+                    @keydown.esc.prevent="closeProductDropdown(index)"
+                  />
+                  <button
+                    type="button"
+                    class="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-500"
+                    :disabled="referencesLoading || availableProductsForMovement.length === 0"
+                    @click="openProductDropdownIndex === index ? closeProductDropdown(index) : openProductDropdown(index)"
+                  >
+                    <span class="text-xs transition-transform" :class="openProductDropdownIndex === index ? 'rotate-180' : ''">
+                      ▼
+                    </span>
+                  </button>
 
-                    <div
-                      v-if="getFilteredProductsForItem(item).length === 0"
-                      class="px-3 py-3 text-sm text-slate-500"
-                    >
-                      Nenhum produto encontrado para essa pesquisa.
+                  <div
+                    v-if="openProductDropdownIndex === index"
+                    class="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_18px_40px_-24px_rgba(15,23,42,0.4)]"
+                  >
+                    <div class="max-h-64 overflow-y-auto py-2">
+                      <button
+                        v-for="product in getFilteredProductsForItem(item)"
+                        :key="product.id"
+                        type="button"
+                        class="block w-full px-3 py-2 text-left transition hover:bg-slate-50"
+                        :class="item.productId === product.id ? 'bg-slate-100' : ''"
+                        @click="selectProductForItem(item, product)"
+                      >
+                        <span class="block text-sm font-medium text-slate-800">{{ product.name }}</span>
+                        <span class="block text-xs text-slate-500">SKU {{ product.sku }} • {{ product.id }}</span>
+                      </button>
+
+                      <div
+                        v-if="getFilteredProductsForItem(item).length === 0"
+                        class="px-3 py-3 text-sm text-slate-500"
+                      >
+                        Nenhum produto encontrado para essa pesquisa.
+                      </div>
                     </div>
                   </div>
                 </div>
+                <input v-model.number="item.quantity" class="erp-field" type="number" min="1" step="1" placeholder="Quantidade" />
+                <button
+                  type="button"
+                  class="erp-button-danger px-3 py-0 text-xs"
+                  :disabled="movementItems.length === 1"
+                  @click="removeItem(index)"
+                >
+                  <ion-icon name="remove-circle-outline"></ion-icon>
+                  Remover
+                </button>
+
+                <div class="md:col-span-3 flex flex-wrap gap-2 text-xs">
+                  <span
+                    class="inline-flex rounded-full border px-2.5 py-1"
+                    :class="
+                      availableProductIds.has(item.productId.trim())
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-amber-200 bg-amber-50 text-amber-700'
+                    "
+                  >
+                    {{
+                      item.productId.trim().length === 0
+                        ? getFilteredProductsForItem(item).length === 0 && item.productSearch.trim().length > 0
+                          ? 'Nenhum produto encontrado para esse filtro.'
+                          : 'Selecione um produto para consultar a disponibilidade.'
+                        : availableProductIds.has(item.productId.trim())
+                          ? 'Produto compativel com as bases selecionadas.'
+                          : 'Produto fora das bases selecionadas.'
+                    }}
+                  </span>
+
+                  <span
+                    v-if="item.productId.trim().length > 0"
+                    class="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600"
+                  >
+                    ID: {{ item.productId.trim() }}
+                  </span>
+
+                  <span
+                    v-if="movementType !== 'ENTRY' && getSourceStockQuantity(item.productId.trim()) !== null"
+                    class="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-700"
+                  >
+                    Origem: {{ formatNumber(getSourceStockQuantity(item.productId.trim()) ?? 0) }}
+                  </span>
+
+                  <span
+                    v-if="movementType === 'TRANSFER' && getDestinationStockQuantity(item.productId.trim()) !== null"
+                    class="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-cyan-700"
+                  >
+                    Destino: {{ formatNumber(getDestinationStockQuantity(item.productId.trim()) ?? 0) }}
+                  </span>
+                </div>
               </div>
-              <input v-model.number="item.quantity" class="erp-field" type="number" min="1" step="1" placeholder="Quantidade" />
-              <button
-                type="button"
-                class="erp-button-danger px-3 py-0 text-xs"
-                :disabled="movementItems.length === 1"
-                @click="removeItem(index)"
-              >
-                <ion-icon name="remove-circle-outline"></ion-icon>
-                Remover
+
+              <button type="button" class="erp-button-muted w-full text-xs sm:w-auto" @click="addItem">
+                <ion-icon name="add-outline"></ion-icon>
+                Adicionar item
               </button>
-
-              <div class="md:col-span-3 flex flex-wrap gap-2 text-xs">
-                <span
-                  class="inline-flex rounded-full border px-2.5 py-1"
-                  :class="
-                    availableProductIds.has(item.productId.trim())
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-amber-200 bg-amber-50 text-amber-700'
-                  "
-                >
-                  {{
-                    item.productId.trim().length === 0
-                      ? getFilteredProductsForItem(item).length === 0 && item.productSearch.trim().length > 0
-                        ? 'Nenhum produto encontrado para esse filtro.'
-                        : 'Selecione um produto para consultar a disponibilidade.'
-                      : availableProductIds.has(item.productId.trim())
-                        ? 'Produto compativel com as bases selecionadas.'
-                        : 'Produto fora das bases selecionadas.'
-                  }}
-                </span>
-
-                <span
-                  v-if="item.productId.trim().length > 0"
-                  class="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600"
-                >
-                  ID: {{ item.productId.trim() }}
-                </span>
-
-                <span
-                  v-if="movementType !== 'ENTRY' && getSourceStockQuantity(item.productId.trim()) !== null"
-                  class="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-700"
-                >
-                  Origem: {{ formatNumber(getSourceStockQuantity(item.productId.trim()) ?? 0) }}
-                </span>
-
-                <span
-                  v-if="movementType === 'TRANSFER' && getDestinationStockQuantity(item.productId.trim()) !== null"
-                  class="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-cyan-700"
-                >
-                  Destino: {{ formatNumber(getDestinationStockQuantity(item.productId.trim()) ?? 0) }}
-                </span>
-              </div>
             </div>
           </div>
 
