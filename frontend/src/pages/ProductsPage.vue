@@ -19,6 +19,7 @@ const deleteLoadingId = ref<string | null>(null);
 const exporting = ref<ReportFormat | null>(null);
 const selectedListBaseId = ref("");
 const selectedListCategoryId = ref("");
+const selectedListIndicator = ref<"" | StockStatus>("");
 const productSearch = ref("");
 const expandedProductIds = ref<string[]>([]);
 const stockConfigDrafts = reactive<Record<string, { minimumQuantity: number; idealQuantity: number }>>({});
@@ -78,6 +79,21 @@ function normalizeSearchText(value: string): string {
 }
 
 const normalizedProductSearch = computed(() => normalizeSearchText(productSearch.value));
+const selectedListIndicatorLabel = computed(() => {
+  if (selectedListIndicator.value === "CRITICAL") {
+    return "Critico";
+  }
+
+  if (selectedListIndicator.value === "WARNING") {
+    return "Atencao";
+  }
+
+  if (selectedListIndicator.value === "HEALTHY") {
+    return "Saudavel";
+  }
+
+  return "";
+});
 
 const filteredProducts = computed(() => {
   const productsByBase = !selectedListBaseId.value
@@ -90,11 +106,15 @@ const filteredProducts = computed(() => {
     ? productsByBase
     : productsByBase.filter((product) => product.categoryId === selectedListCategoryId.value);
 
+  const productsByIndicator = !selectedListIndicator.value
+    ? productsByCategory
+    : productsByCategory.filter((product) => resolveProductHealthStatus(product) === selectedListIndicator.value);
+
   if (!normalizedProductSearch.value) {
-    return productsByCategory;
+    return productsByIndicator;
   }
 
-  return productsByCategory.filter((product) => {
+  return productsByIndicator.filter((product) => {
     const searchTarget = `${product.name} ${product.sku}`;
     return normalizeSearchText(searchTarget).includes(normalizedProductSearch.value);
   });
@@ -161,20 +181,24 @@ function resolveStockHealth(product: ProductEntity): {
   label: string;
   tone: string;
 } {
+  return resolveStatusMeta(resolveProductHealthStatus(product));
+}
+
+function resolveProductHealthStatus(product: ProductEntity): StockStatus {
   if (selectedListBaseId.value) {
     const stock = product.stockByBase.find((item) => item.baseId === selectedListBaseId.value);
-    return resolveStatusMeta(stock?.status ?? "HEALTHY");
+    return stock?.status ?? "HEALTHY";
   }
 
   if (product.stockByBase.some((stock) => stock.status === "CRITICAL")) {
-    return resolveStatusMeta("CRITICAL");
+    return "CRITICAL";
   }
 
   if (product.stockByBase.some((stock) => stock.status === "WARNING")) {
-    return resolveStatusMeta("WARNING");
+    return "WARNING";
   }
 
-  return resolveStatusMeta("HEALTHY");
+  return "HEALTHY";
 }
 
 function resolveHealthSummary(product: ProductEntity): string {
@@ -964,7 +988,7 @@ watch(filteredProducts, () => {
 
     <article class="erp-surface p-6 reveal-up" style="animation-delay: 0.1s">
       <div
-        class="grid gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,180px)_minmax(0,180px)_minmax(240px,1fr)_auto_auto] lg:items-end"
+        class="grid gap-4 md:grid-cols-2 lg:grid-cols-[minmax(0,180px)_minmax(0,180px)_minmax(0,180px)_minmax(220px,1fr)_auto_auto] lg:items-end"
       >
         <div>
           <label class="erp-label">Base visualizada</label>
@@ -979,6 +1003,16 @@ watch(filteredProducts, () => {
           <select v-model="selectedListCategoryId" class="erp-select" :disabled="loading || categories.length === 0">
             <option value="">Todas as categorias</option>
             <option v-for="category in categories" :key="category.id" :value="category.id">{{ category.name }}</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="erp-label">Indicador</label>
+          <select v-model="selectedListIndicator" class="erp-select" :disabled="loading">
+            <option value="">Todos os indicadores</option>
+            <option value="HEALTHY">Saudavel</option>
+            <option value="WARNING">Atencao</option>
+            <option value="CRITICAL">Critico</option>
           </select>
         </div>
 
@@ -1031,6 +1065,11 @@ watch(filteredProducts, () => {
           selectedListCategoryName
             ? ` • Categoria: ${selectedListCategoryName}`
             : " • Categoria: todas"
+        }}
+        {{
+          selectedListIndicatorLabel
+            ? ` • Indicador: ${selectedListIndicatorLabel}`
+            : " • Indicador: todos"
         }}
         {{
           productSearch.trim()

@@ -5,6 +5,7 @@ import {
   StockMovementWithRelations,
   UserWithBaseAccess
 } from "../repositories/stock-movement.repository";
+import { buildOperationalMovementPdfReport } from "./operational-movement-report";
 import { ReportExportService, TabularReport } from "./report-export.service";
 import { StockService, StockServiceTransaction, stockService as defaultStockService } from "./stock.service";
 
@@ -275,12 +276,13 @@ export class StockMovementService {
       this.assertUserCanViewMovement(user, movement);
 
       const detail = this.serializeMovement(user, movement);
-      const report = this.buildMovementReport(detail, {
+      const company = {
         companyName: user.company.name,
         companyLogoDataUrl: user.company.logoDataUrl ?? null
-      });
+      };
 
       if (format === "excel") {
+        const report = this.buildMovementReport(detail, company);
         const buffer = await this.reportExportService.generateExcel(report);
 
         return {
@@ -290,7 +292,8 @@ export class StockMovementService {
         };
       }
 
-      const buffer = await this.reportExportService.generatePdf(report);
+      const report = this.buildMovementOperationalReport(detail, company);
+      const buffer = await this.reportExportService.generateOperationalPdf(report);
 
       return {
         fileName: `movimentacao-${detail.id}.pdf`,
@@ -1085,6 +1088,43 @@ export class StockMovementService {
         reversalReason: detail.reversalReason ?? "-"
       }))
     };
+  }
+
+  private buildMovementOperationalReport(
+    detail: MovementDetailPayload,
+    company: {
+      companyName: string;
+      companyLogoDataUrl: string | null;
+    }
+  ) {
+    return buildOperationalMovementPdfReport({
+      title: "Relatorio de Movimentacao",
+      companyName: company.companyName,
+      companyLogoDataUrl: company.companyLogoDataUrl,
+      contextLines: this.buildMovementContextLines(detail),
+      records: [
+        {
+          id: detail.id,
+          type: detail.type,
+          status: detail.status,
+          reason: detail.reason,
+          rejectionReason: detail.rejectionReason,
+          cancellationReason: detail.cancellationReason,
+          reversalReason: detail.reversalReason,
+          sourceBaseName: detail.sourceBase?.name ?? "-",
+          destinationBaseName: detail.destinationBase?.name ?? "-",
+          createdByName: detail.createdBy.name,
+          approvedByName: detail.approvedBy?.name ?? "-",
+          createdAt: detail.createdAt,
+          approvedAt: detail.approvedAt,
+          completedAt: detail.completedAt,
+          items: detail.items.map((item) => ({
+            productName: item.productName,
+            quantity: item.quantity
+          }))
+        }
+      ]
+    });
   }
 
   private buildMovementContextLines(detail: MovementDetailPayload): string[] {

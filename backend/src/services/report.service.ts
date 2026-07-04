@@ -8,7 +8,8 @@ import {
   StockReportRecord,
   UserWithBaseAccess
 } from "../repositories/report.repository";
-import { ReportExportService, TabularReport } from "./report-export.service";
+import { buildOperationalMovementPdfReport } from "./operational-movement-report";
+import { OperationalPdfReport, ReportExportService, TabularReport } from "./report-export.service";
 import { resolveStockStatus, resolveStockThresholds, type StockStatus } from "./stock-status.service";
 
 type ReportFormat = "excel" | "pdf";
@@ -155,7 +156,36 @@ export class ReportService {
 
   async exportMovementsReport(userId: string, filters: MovementReportFilters, format: ReportFormat) {
     const user = await this.requireUserWithBaseAccess(userId);
-    const report = await this.getMovementsReport(userId, filters);
+    const records = await this.reportRepository.getMovementRecords(
+      user.companyId,
+      filters,
+      this.resolveAllowedBaseIds(user)
+    );
+
+    if (format === "pdf") {
+      const report = await this.buildOperationalMovementsPdfReport(
+        "Relatorio de Movimentacoes",
+        user.companyId,
+        user.company.name,
+        user.company.logoDataUrl ?? null,
+        filters,
+        records
+      );
+
+      return this.exportOperationalPdfReport(report, "movimentacoes");
+    }
+
+    const report = {
+      filters,
+      summary: {
+        rows: records.length,
+        totalQuantity: records.reduce(
+          (accumulator, record) => accumulator + record.items.reduce((total, item) => total + item.quantity, 0),
+          0
+        )
+      },
+      rows: records.map((record) => this.mapMovementRow(record))
+    };
 
     const tabularReport: TabularReport = {
       title: "Relatorio de Movimentacoes",
@@ -190,7 +220,36 @@ export class ReportService {
 
   async exportTransfersReport(userId: string, filters: Omit<MovementReportFilters, "type">, format: ReportFormat) {
     const user = await this.requireUserWithBaseAccess(userId);
-    const report = await this.getTransfersReport(userId, filters);
+    const records = await this.reportRepository.getTransferRecords(
+      user.companyId,
+      filters,
+      this.resolveAllowedBaseIds(user)
+    );
+
+    if (format === "pdf") {
+      const report = await this.buildOperationalMovementsPdfReport(
+        "Relatorio de Transferencias",
+        user.companyId,
+        user.company.name,
+        user.company.logoDataUrl ?? null,
+        filters,
+        records
+      );
+
+      return this.exportOperationalPdfReport(report, "transferencias");
+    }
+
+    const report = {
+      filters,
+      summary: {
+        rows: records.length,
+        totalQuantity: records.reduce(
+          (accumulator, record) => accumulator + record.items.reduce((total, item) => total + item.quantity, 0),
+          0
+        )
+      },
+      rows: records.map((record) => this.mapMovementRow(record))
+    };
 
     const tabularReport: TabularReport = {
       title: "Relatorio de Transferencias",
@@ -349,6 +408,42 @@ export class ReportService {
     return contextLines;
   }
 
+  private async buildOperationalMovementsPdfReport(
+    title: string,
+    companyId: string,
+    companyName: string,
+    companyLogoDataUrl: string | null,
+    filters: Partial<MovementReportFilters>,
+    records: MovementReportRecord[]
+  ): Promise<OperationalPdfReport> {
+    return buildOperationalMovementPdfReport({
+      title,
+      companyName,
+      companyLogoDataUrl,
+      contextLines: await this.resolveMovementContextLines(companyId, filters),
+      records: records.map((record) => ({
+        id: record.id,
+        type: record.type,
+        status: record.status,
+        reason: record.reason,
+        rejectionReason: record.rejectionReason,
+        cancellationReason: record.cancellationReason,
+        reversalReason: record.reversalReason,
+        sourceBaseName: record.sourceBase?.name ?? "-",
+        destinationBaseName: record.destinationBase?.name ?? "-",
+        createdByName: record.createdBy.name,
+        approvedByName: record.approvedBy?.name ?? "-",
+        createdAt: record.createdAt,
+        approvedAt: record.approvedAt,
+        completedAt: record.completedAt,
+        items: record.items.map((item) => ({
+          productName: item.product.name,
+          quantity: item.quantity
+        }))
+      }))
+    });
+  }
+
   private async exportReportByFormat(report: TabularReport, baseFileName: string, format: ReportFormat) {
     if (format === "excel") {
       const buffer = await this.reportExportService.generateExcel(report);
@@ -361,6 +456,16 @@ export class ReportService {
     }
 
     const buffer = await this.reportExportService.generatePdf(report);
+
+    return {
+      fileName: `${baseFileName}.pdf`,
+      contentType: "application/pdf",
+      buffer
+    };
+  }
+
+  private async exportOperationalPdfReport(report: OperationalPdfReport, baseFileName: string) {
+    const buffer = await this.reportExportService.generateOperationalPdf(report);
 
     return {
       fileName: `${baseFileName}.pdf`,

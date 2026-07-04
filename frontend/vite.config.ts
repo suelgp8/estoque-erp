@@ -4,6 +4,10 @@ import vue from "@vitejs/plugin-vue";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const backendTarget = env.VITE_BACKEND_TARGET ?? "http://127.0.0.1:3000";
+  const allowedHosts = (env.VITE_ALLOWED_HOSTS ?? "localhost,127.0.0.1")
+    .split(",")
+    .map((host) => host.trim())
+    .filter(Boolean);
 
   const apiProxy = {
     "/api": {
@@ -29,11 +33,7 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 5173,
       strictPort: true,
-      allowedHosts: [
-        "localhost",
-        "127.0.0.1",
-        "sueldev.qzz.io"
-      ],
+      allowedHosts,
       proxy: apiProxy
     },
 
@@ -41,11 +41,7 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: 4173,
       strictPort: true,
-      allowedHosts: [
-        "localhost",
-        "127.0.0.1",
-        "sueldev.qzz.io"
-      ],
+      allowedHosts,
       proxy: apiProxy
     }
   };

@@ -36,6 +36,7 @@ type TodoItem = {
   tone: string;
 };
 type DashboardStockState = "zero" | "critical" | "warning" | "good";
+type BaseSituationState = "critical" | "alert" | "attention" | "healthy";
 type DashboardStockRow = {
   productId: string;
   productName: string;
@@ -62,6 +63,16 @@ type BaseHealthEntry = {
   alertCount: number;
   percent: number;
 };
+type BaseSituationCard = BaseHealthEntry & {
+  criticalProductsCount: number;
+  status: BaseSituationState;
+  statusLabel: string;
+  statusTone: string;
+  statusHelper: string;
+  priority: number;
+  lastMovementAt: string | null;
+  active: boolean;
+};
 
 const auth = useAuthStore();
 const notifier = useNotifier();
@@ -78,6 +89,8 @@ const knownProducts = ref<ProductEntity[]>([]);
 
 const movementsReport = ref<MovementReportResponse | null>(null);
 const transfersReport = ref<TransferReportResponse | null>(null);
+const overviewMovementsReport = ref<MovementReportResponse | null>(null);
+const overviewTransfersReport = ref<TransferReportResponse | null>(null);
 
 const periodOptions: Array<{ label: string; value: PeriodPreset }> = [
   { label: "Hoje", value: "today" },
@@ -96,6 +109,14 @@ function resolveErrorMessage(error: unknown): string {
   }
 
   return "Erro inesperado";
+}
+
+function normalizeComparableText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLocaleLowerCase("pt-BR");
 }
 
 function getPeriodRange(preset: PeriodPreset): { dateFrom?: string; dateTo?: string } {
@@ -192,6 +213,166 @@ function resolveStockTone(status: DashboardStockState): string {
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
+function resolveBaseSituationState(entry: BaseHealthEntry): BaseSituationState {
+  const dynamicCriticalThreshold = Math.max(3, Math.ceil(entry.monitored * 0.25));
+
+  if (entry.zeroCount > 0 || entry.criticalCount >= dynamicCriticalThreshold) {
+    return "critical";
+  }
+
+  if (entry.criticalCount > 0) {
+    return "alert";
+  }
+
+  if (entry.warningCount > 0) {
+    return "attention";
+  }
+
+  return "healthy";
+}
+
+function resolveBaseSituationLabel(status: BaseSituationState): string {
+  if (status === "critical") {
+    return "Critica";
+  }
+
+  if (status === "alert") {
+    return "Alerta";
+  }
+
+  if (status === "attention") {
+    return "Atencao";
+  }
+
+  return "Saudavel";
+}
+
+function resolveBaseSituationTone(status: BaseSituationState): string {
+  if (status === "critical") {
+    return "border-rose-200 bg-rose-50 text-rose-700";
+  }
+
+  if (status === "alert") {
+    return "border-orange-200 bg-orange-50 text-orange-700";
+  }
+
+  if (status === "attention") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
+function resolveBaseSituationPriority(status: BaseSituationState): number {
+  if (status === "critical") {
+    return 0;
+  }
+
+  if (status === "alert") {
+    return 1;
+  }
+
+  if (status === "attention") {
+    return 2;
+  }
+
+  return 3;
+}
+
+function resolveBaseSituationHelper(entry: BaseHealthEntry, criticalProductsCount: number, status: BaseSituationState): string {
+  if (status === "critical") {
+    return entry.zeroCount > 0
+      ? `${formatNumber(entry.zeroCount)} produto(s) zerado(s) exigem reposicao imediata`
+      : `${formatNumber(criticalProductsCount)} produto(s) critico(s) pedem acao imediata`;
+  }
+
+  if (status === "alert") {
+    return `${formatNumber(entry.criticalCount)} produto(s) abaixo do minimo`;
+  }
+
+  if (status === "attention") {
+    return `${formatNumber(entry.warningCount)} produto(s) abaixo do ideal`;
+  }
+
+  return "Nenhum produto critico no periodo analisado";
+}
+
+function formatRelativeMovementDate(value: string | null): string {
+  if (!value) {
+    return "Sem movimentacao no periodo";
+  }
+
+  const target = new Date(value);
+
+  if (Number.isNaN(target.getTime())) {
+    return formatDateTime(value);
+  }
+
+  const now = new Date();
+  const todayStart = new Date(now);
+  todayStart.setHours(0, 0, 0, 0);
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+  const timeLabel = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(target);
+
+  if (target >= todayStart) {
+    return `Hoje as ${timeLabel}`;
+  }
+
+  if (target >= yesterdayStart) {
+    return `Ontem as ${timeLabel}`;
+  }
+
+  return formatDateTime(value);
+}
+
+function buildVisibleProducts(baseId = ""): ProductEntity[] {
+  return knownProducts.value.filter((product) =>
+    product.allowedBases.some((base) => accessibleBaseIds.value.has(base.id) && (!baseId || base.id === baseId))
+  );
+}
+
+function buildStockRows(baseId = ""): DashboardStockRow[] {
+  return buildVisibleProducts(baseId).flatMap((product) => {
+    const basesToRender = product.allowedBases.filter((base) => accessibleBaseIds.value.has(base.id) && (!baseId || base.id === baseId));
+
+    return basesToRender.map((base) => {
+      const stockSnapshot = product.stockByBase.find((stock) => stock.baseId === base.id);
+      const quantity = stockSnapshot?.quantity ?? 0;
+      const minimumQuantity = stockSnapshot?.minimumQuantity ?? 0;
+      const idealQuantity = stockSnapshot?.idealQuantity ?? 0;
+      const alertState = resolveDashboardStockState(quantity, stockSnapshot?.status ?? "HEALTHY");
+
+      return {
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        category: product.category?.name ?? "Sem categoria",
+        baseId: base.id,
+        base: base.name,
+        quantity,
+        updatedAt: product.updatedAt,
+        minimumQuantity,
+        idealQuantity,
+        alertState,
+        statusLabel: resolveDashboardStockLabel(alertState),
+        gap: Math.max(0, (stockSnapshot?.status === "WARNING" ? idealQuantity : minimumQuantity) - quantity)
+      };
+    });
+  });
+}
+
+function movementTouchesBase(baseName: string, row: MovementReportResponse["rows"][number]): boolean {
+  const normalizedBaseName = normalizeComparableText(baseName);
+  return (
+    normalizeComparableText(row.sourceBase).includes(normalizedBaseName) ||
+    normalizeComparableText(row.destinationBase).includes(normalizedBaseName)
+  );
+}
+
 function summarizeMovementItems(value: string): string {
   if (!value || value === "-") {
     return "Sem itens detalhados";
@@ -251,13 +432,29 @@ async function loadDashboard() {
   const periodRange = getPeriodRange(selectedPeriod.value);
 
   try {
-    const [movements, transfers] = await Promise.all([
-      api.getMovementsReport(auth.state.token, { baseId, ...periodRange }),
-      api.getTransfersReport(auth.state.token, { baseId, ...periodRange })
-    ]);
+    if (baseId) {
+      const [movements, transfers, overviewMovements, overviewTransfers] = await Promise.all([
+        api.getMovementsReport(auth.state.token, { baseId, ...periodRange }),
+        api.getTransfersReport(auth.state.token, { baseId, ...periodRange }),
+        api.getMovementsReport(auth.state.token, periodRange),
+        api.getTransfersReport(auth.state.token, periodRange)
+      ]);
 
-    movementsReport.value = movements;
-    transfersReport.value = transfers;
+      movementsReport.value = movements;
+      transfersReport.value = transfers;
+      overviewMovementsReport.value = overviewMovements;
+      overviewTransfersReport.value = overviewTransfers;
+    } else {
+      const [movements, transfers] = await Promise.all([
+        api.getMovementsReport(auth.state.token, periodRange),
+        api.getTransfersReport(auth.state.token, periodRange)
+      ]);
+
+      movementsReport.value = movements;
+      transfersReport.value = transfers;
+      overviewMovementsReport.value = movements;
+      overviewTransfersReport.value = transfers;
+    }
   } catch (error) {
     const message = resolveErrorMessage(error);
     loadError.value = message;
@@ -282,6 +479,15 @@ function setPeriod(value: PeriodPreset) {
   selectedPeriod.value = value;
 }
 
+async function focusDashboardBase(baseId: string) {
+  if (loading.value && selectedBaseId.value === baseId) {
+    return;
+  }
+
+  selectedBaseId.value = baseId;
+  await loadDashboard();
+}
+
 const authUser = computed(() => auth.state.user);
 const accessibleBaseIds = computed(() => new Set(knownBases.value.map((base) => base.id)));
 const selectedBaseLabel = computed(
@@ -292,45 +498,11 @@ const selectedPeriodLabel = computed(
 );
 const movementRows = computed(() => movementsReport.value?.rows ?? []);
 const transferRows = computed(() => transfersReport.value?.rows ?? []);
-const visibleProductsByBase = computed(() =>
-  knownProducts.value.filter((product) =>
-    product.allowedBases.some((base) =>
-      accessibleBaseIds.value.has(base.id) && (!selectedBaseId.value || base.id === selectedBaseId.value)
-    )
-  )
-);
-
-const stockRowsDetailed = computed<DashboardStockRow[]>(() =>
-  visibleProductsByBase.value.flatMap((product) => {
-    const basesToRender = product.allowedBases.filter((base) =>
-      accessibleBaseIds.value.has(base.id) && (!selectedBaseId.value || base.id === selectedBaseId.value)
-    );
-
-    return basesToRender.map((base) => {
-      const stockSnapshot = product.stockByBase.find((stock) => stock.baseId === base.id);
-      const quantity = stockSnapshot?.quantity ?? 0;
-      const minimumQuantity = stockSnapshot?.minimumQuantity ?? 0;
-      const idealQuantity = stockSnapshot?.idealQuantity ?? 0;
-      const alertState = resolveDashboardStockState(quantity, stockSnapshot?.status ?? "HEALTHY");
-
-      return {
-        productId: product.id,
-        productName: product.name,
-        sku: product.sku,
-        category: product.category?.name ?? "Sem categoria",
-        baseId: base.id,
-        base: base.name,
-        quantity,
-        updatedAt: product.updatedAt,
-        minimumQuantity,
-        idealQuantity,
-        alertState,
-        statusLabel: resolveDashboardStockLabel(alertState),
-        gap: Math.max(0, (stockSnapshot?.status === "WARNING" ? idealQuantity : minimumQuantity) - quantity)
-      };
-    });
-  })
-);
+const overviewMovementRows = computed(() => overviewMovementsReport.value?.rows ?? []);
+const overviewTransferRows = computed(() => overviewTransfersReport.value?.rows ?? []);
+const visibleProductsByBase = computed(() => buildVisibleProducts(selectedBaseId.value));
+const stockRowsDetailed = computed<DashboardStockRow[]>(() => buildStockRows(selectedBaseId.value));
+const allStockRowsDetailed = computed<DashboardStockRow[]>(() => buildStockRows());
 
 const totalStockQuantity = computed(() => stockRowsDetailed.value.reduce((total, row) => total + row.quantity, 0));
 const totalStockRows = computed(() => stockRowsDetailed.value.length);
@@ -487,7 +659,7 @@ const movementStatusSummary = computed(() => {
 const stockByBaseHealth = computed<BaseHealthEntry[]>(() => {
   const grouped = new Map<string, BaseHealthEntry>();
 
-  for (const row of stockRowsDetailed.value) {
+  for (const row of allStockRowsDetailed.value) {
     const existing = grouped.get(row.baseId);
 
     if (existing) {
@@ -534,19 +706,56 @@ const stockByBaseHealth = computed<BaseHealthEntry[]>(() => {
   }));
 });
 
-const baseWithMostAlerts = computed<BaseHealthEntry | null>(() => {
-  return (
-    stockByBaseHealth.value
-      .filter((entry) => entry.alertCount > 0)
-      .sort((left, right) => {
-        if (left.alertCount !== right.alertCount) {
-          return right.alertCount - left.alertCount;
-        }
+const baseLastMovementMap = computed(() => {
+  const movementMap = new Map<string, string | null>();
+  const rows = [...overviewMovementRows.value, ...overviewTransferRows.value];
 
-        return right.quantity - left.quantity;
-      })[0] ?? null
-  );
+  for (const base of knownBases.value) {
+    const latestMovement = rows
+      .filter((row) => movementTouchesBase(base.name, row))
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0];
+
+    movementMap.set(base.id, latestMovement?.createdAt ?? null);
+  }
+
+  return movementMap;
 });
+
+const baseSituationCards = computed<BaseSituationCard[]>(() =>
+  stockByBaseHealth.value
+    .map((entry) => {
+      const status = resolveBaseSituationState(entry);
+      const criticalProductsCount = entry.zeroCount + entry.criticalCount;
+      const lastMovementAt = baseLastMovementMap.value.get(entry.baseId) ?? null;
+
+      return {
+        ...entry,
+        criticalProductsCount,
+        status,
+        statusLabel: resolveBaseSituationLabel(status),
+        statusTone: resolveBaseSituationTone(status),
+        statusHelper: resolveBaseSituationHelper(entry, criticalProductsCount, status),
+        priority: resolveBaseSituationPriority(status),
+        lastMovementAt,
+        active: entry.baseId === selectedBaseId.value
+      };
+    })
+    .sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return left.priority - right.priority;
+      }
+
+      if (left.criticalProductsCount !== right.criticalProductsCount) {
+        return right.criticalProductsCount - left.criticalProductsCount;
+      }
+
+      if (left.warningCount !== right.warningCount) {
+        return right.warningCount - left.warningCount;
+      }
+
+      return left.base.localeCompare(right.base, "pt-BR");
+    })
+);
 
 const priorityCards = computed<DashboardCard[]>(() => [
   {
@@ -575,33 +784,6 @@ const priorityCards = computed<DashboardCard[]>(() => [
     value: formatNumber(problemMovementCount.value),
     helper: "Rejeicoes, cancelamentos e estornos",
     tone: problemMovementCount.value > 0 ? "border-slate-300 bg-slate-100 text-slate-800" : "border-slate-200 bg-white text-slate-700"
-  }
-]);
-
-const executiveCards = computed<DashboardCard[]>(() => [
-  {
-    label: "Base analisada",
-    value: selectedBaseLabel.value,
-    helper: selectedPeriodLabel.value,
-    tone: "border-slate-200 bg-white text-slate-700"
-  },
-  {
-    label: "Trabalho aberto",
-    value: formatNumber(openWorkCount.value),
-    helper: "Pendencias e transferencias",
-    tone: openWorkCount.value > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
-  },
-  {
-    label: "Saldo do periodo",
-    value: formatSignedNumber(movementBalance.value),
-    helper: "Entradas menos saidas",
-    tone: movementBalance.value < 0 ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
-  },
-  {
-    label: "Base com mais alertas",
-    value: baseWithMostAlerts.value?.base ?? "Sem alertas",
-    helper: baseWithMostAlerts.value ? `${formatNumber(baseWithMostAlerts.value.alertCount)} itens em atencao` : "Estoque dentro do esperado",
-    tone: baseWithMostAlerts.value ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"
   }
 ]);
 
@@ -681,28 +863,101 @@ onMounted(async () => {
 <template>
   <section class="space-y-5">
     <article class="erp-surface overflow-hidden p-5 sm:p-6 reveal-up">
-      <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_370px]">
+      <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Resumo executivo</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700">Situacao das bases</p>
             <span class="inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold" :class="operationStateTone">
               {{ operationStateLabel }}
             </span>
           </div>
 
-          <h1 class="font-heading mt-2 text-3xl text-slate-900">Painel operacional</h1>
+          <h1 class="font-heading mt-2 text-3xl text-slate-900">Painel de monitoramento das unidades</h1>
           <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             {{ authUser?.name ?? "Usuario" }}
             <span v-if="authUser">({{ formatRole(authUser.role) }})</span>
-            acompanhando {{ selectedBaseLabel }} em {{ selectedPeriodLabel.toLowerCase() }}.
+            acompanhando a operacao distribuida em {{ selectedPeriodLabel.toLowerCase() }}.
           </p>
 
-          <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <article v-for="card in executiveCards" :key="card.label" class="rounded-2xl border px-4 py-3" :class="card.tone">
-              <p class="text-[11px] font-semibold uppercase tracking-[0.14em]">{{ card.label }}</p>
-              <p class="mt-2 min-h-[2.25rem] break-words text-lg font-semibold leading-tight text-slate-900">{{ card.value }}</p>
-              <p class="mt-1 text-xs text-slate-600">{{ card.helper }}</p>
-            </article>
+          <div class="mt-5 flex flex-wrap gap-2 text-xs">
+            <span class="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-700">
+              {{ formatNumber(baseSituationCards.length) }} base(s) monitorada(s)
+            </span>
+            <span class="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-700">
+              Filtro ativo: {{ selectedBaseLabel }}
+            </span>
+            <span class="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-700">
+              Periodo: {{ selectedPeriodLabel }}
+            </span>
+          </div>
+
+          <div v-if="baseSituationCards.length === 0" class="mt-5 rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+            Sem dados suficientes para montar a situacao das bases.
+          </div>
+
+          <div v-else class="mt-5 grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+            <button
+              v-for="baseCard in baseSituationCards"
+              :key="baseCard.baseId"
+              type="button"
+              class="rounded-2xl border bg-white p-4 text-left shadow-[0_18px_42px_-32px_rgba(15,23,42,0.24)] transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-200"
+              :class="baseCard.active ? 'border-sky-300 ring-1 ring-sky-200' : 'border-slate-200'"
+              :disabled="loading"
+              @click="focusDashboardBase(baseCard.baseId)"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="break-words text-base font-semibold text-slate-900">{{ baseCard.base }}</p>
+                  <p class="mt-1 text-xs text-slate-500">{{ baseCard.statusHelper }}</p>
+                </div>
+                <span class="inline-flex shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold" :class="baseCard.statusTone">
+                  {{ baseCard.statusLabel }}
+                </span>
+              </div>
+
+              <div class="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  class="h-full rounded-full transition-all duration-500"
+                  :class="
+                    baseCard.status === 'critical'
+                      ? 'bg-rose-500'
+                      : baseCard.status === 'alert'
+                        ? 'bg-orange-500'
+                        : baseCard.status === 'attention'
+                          ? 'bg-amber-500'
+                          : 'bg-emerald-500'
+                  "
+                  :style="{ width: `${Math.max(10, 100 - Math.round((baseCard.alertCount / Math.max(baseCard.monitored, 1)) * 100))}%` }"
+                />
+              </div>
+
+              <div class="mt-4 grid grid-cols-2 gap-2 text-xs">
+                <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p class="font-semibold text-slate-500">Criticos</p>
+                  <p class="mt-1 text-sm font-semibold text-slate-900">{{ formatNumber(baseCard.criticalProductsCount) }}</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p class="font-semibold text-slate-500">Abaixo minimo</p>
+                  <p class="mt-1 text-sm font-semibold text-slate-900">{{ formatNumber(baseCard.criticalCount) }}</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p class="font-semibold text-slate-500">Abaixo ideal</p>
+                  <p class="mt-1 text-sm font-semibold text-slate-900">{{ formatNumber(baseCard.warningCount) }}</p>
+                </div>
+                <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p class="font-semibold text-slate-500">Monitorados</p>
+                  <p class="mt-1 text-sm font-semibold text-slate-900">{{ formatNumber(baseCard.monitored) }}</p>
+                </div>
+              </div>
+
+              <div class="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-xs text-slate-500">
+                <span class="inline-flex items-center gap-1.5">
+                  <span class="h-2.5 w-2.5 rounded-full bg-slate-300"></span>
+                  Ultima movimentacao
+                </span>
+                <span class="text-right font-semibold text-slate-700">{{ formatRelativeMovementDate(baseCard.lastMovementAt) }}</span>
+              </div>
+            </button>
           </div>
 
           <div v-if="loadError" class="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -873,7 +1128,7 @@ onMounted(async () => {
       </article>
     </section>
 
-    <section class="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+    <section>
       <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.16s">
         <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -916,50 +1171,6 @@ onMounted(async () => {
               </tr>
             </tbody>
           </table>
-        </div>
-      </article>
-
-      <article class="erp-surface p-5 reveal-up" style="animation-delay: 0.2s">
-        <div class="mb-4">
-          <h2 class="font-heading text-xl text-slate-900">Saude por base</h2>
-          <p class="mt-1 text-sm text-slate-500">Bases com mais alertas aparecem primeiro.</p>
-        </div>
-
-        <div v-if="stockByBaseHealth.length === 0" class="rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
-          Sem dados de estoque para exibir.
-        </div>
-
-        <div v-else class="space-y-3">
-          <article v-for="entry in stockByBaseHealth" :key="entry.baseId" class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <p class="break-words font-semibold text-slate-900">{{ entry.base }}</p>
-                <p class="mt-1 text-xs text-slate-500">
-                  {{ entry.monitored }} itens | {{ entry.alertCount }} alertas
-                </p>
-              </div>
-              <span class="shrink-0 text-sm font-semibold text-slate-800">{{ formatNumber(entry.quantity) }}</span>
-            </div>
-
-            <div class="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-              <div
-                class="h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-400 transition-all duration-500"
-                :style="{ width: `${entry.percent}%` }"
-              />
-            </div>
-
-            <div class="mt-3 flex flex-wrap gap-2 text-xs">
-              <span class="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-rose-700">
-                Zerados {{ formatNumber(entry.zeroCount) }}
-              </span>
-              <span class="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-rose-700">
-                Minimo {{ formatNumber(entry.criticalCount) }}
-              </span>
-              <span class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-700">
-                Ideal {{ formatNumber(entry.warningCount) }}
-              </span>
-            </div>
-          </article>
         </div>
       </article>
     </section>
